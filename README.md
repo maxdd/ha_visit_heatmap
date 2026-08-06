@@ -92,6 +92,10 @@ python -m pytest     # unit tests for the integration's pure logic
 ruff check custom_components/visit_heatmap
 ```
 
+`python3 scripts/demo.py` replays a synthetic two-week GPS history through the
+real `logic.py`/`store.py` pipeline and prints the resulting rows with their
+decay opacities — a no-HA way to see dedupe, classification, and the fade work.
+
 There is no test runtime for the card; verify by eye on a Home Assistant instance.
 
 ### Local dev against a docker-compose Home Assistant
