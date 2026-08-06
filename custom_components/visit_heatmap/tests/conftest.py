@@ -8,6 +8,7 @@ code stays out of the unit tests.
 import importlib.util
 import sys
 import types
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,72 @@ _BASE = Path(__file__).parents[1]
 _pkg = types.ModuleType("visit_heatmap")
 _pkg.__path__ = [str(_BASE)]
 sys.modules["visit_heatmap"] = _pkg
+
+
+def _mod(name: str, **attrs) -> types.ModuleType:
+    module = types.ModuleType(name)
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    return module
+
+
+async def _noop(*_args, **_kwargs) -> None:
+    pass
+
+
+def _ws_command(schema):
+    return lambda fn: fn
+
+
+def _sync_decorator(fn):
+    return fn
+
+
+class _Vol:
+    class Optional:
+        def __init__(self, key, **kwargs):
+            self.key = key
+
+
+_websocket_const = _mod(
+    "homeassistant.components.websocket_api.const",
+    TYPE="type",
+    ATTR_ID="id",
+    ID_REGEX=None,
+)
+_websocket_api = _mod(
+    "homeassistant.components.websocket_api",
+    const=_websocket_const,
+    vol=_Vol(),
+    ActiveConnection=object,
+    websocket_command=_ws_command,
+    require_admin=_sync_decorator,
+    async_response=_sync_decorator,
+    async_register_command=lambda hass, fn: None,
+)
+_util_dt = _mod(
+    "homeassistant.util.dt",
+    utcnow=lambda: datetime.now(UTC),
+)
+sys.modules["homeassistant"] = _mod("homeassistant")
+sys.modules["homeassistant.const"] = _mod(
+    "homeassistant.const", EVENT_STATE_CHANGED="state_changed"
+)
+sys.modules["homeassistant.core"] = _mod("homeassistant.core", HomeAssistant=object)
+sys.modules["homeassistant.helpers"] = _mod("homeassistant.helpers")
+sys.modules["homeassistant.helpers.typing"] = _mod(
+    "homeassistant.helpers.typing", ConfigType=dict
+)
+sys.modules["homeassistant.util"] = _mod("homeassistant.util", dt=_util_dt)
+sys.modules["homeassistant.util.dt"] = _util_dt
+sys.modules["homeassistant.components"] = _mod("homeassistant.components")
+sys.modules["homeassistant.components.frontend"] = _mod(
+    "homeassistant.components.frontend",
+    add_extra_js_url=lambda *a, **k: None,
+    async_add_extra_js_url=_noop,
+)
+sys.modules["homeassistant.components.websocket_api"] = _websocket_api
+sys.modules["homeassistant.components.websocket_api.const"] = _websocket_const
 
 
 def _load(name: str) -> types.ModuleType:
@@ -35,6 +102,7 @@ def _load(name: str) -> types.ModuleType:
 _logic = _load("logic")
 _const = _load("const")
 _store = _load("store")
+_init = _load("__init__")
 
 
 @pytest.fixture
@@ -45,3 +113,8 @@ def logic():
 @pytest.fixture
 def store():
     return _store
+
+
+@pytest.fixture
+def runtime():
+    return _init.VisitHeatmapRuntime
