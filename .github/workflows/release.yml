@@ -39,7 +39,7 @@ jobs:
       - name: Package integration
         run: |
           cd custom_components/visit_heatmap
-          zip -r ../../visit-heatmap.zip . -x "./www_src/*" "./tests/*"
+          zip -r ../../visit-heatmap.zip . -x "./www_src/*" "./tests/*" "./strings.json"
 
       - name: Publish release
         uses: softprops/action-gh-release@v3
