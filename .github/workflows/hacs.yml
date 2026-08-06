@@ -1,0 +1,18 @@
+name: HACS validation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Requires the real repository URL in manifest.json (documentation +
+      # issue_tracker) — see the Releasing checklist. Green only after the
+      # repo exists and those placeholders are filled in.
+      - uses: hacs/action@main
+        with:
+          category: integration
