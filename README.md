@@ -64,6 +64,10 @@ It also accepts the default map card's keys: `zones`, `hours_to_show`,
 `default_zoom`, `auto_fit`, `fit_zones`, `theme_mode`, `dark_mode`, `cluster`,
 `show_all`, `aspect_ratio`.
 
+> `show_all: true` maps every GPS `device_tracker` entity (no entity list needed);
+> `hours_to_show` draws the stock map card's recent-movement trails layer on top of
+> the fading visits.
+
 ## Integration options
 
 Via **Devices & Services → Visit Heatmap → Options**:

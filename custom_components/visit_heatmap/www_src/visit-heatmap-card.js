@@ -445,8 +445,8 @@ class VisitHeatmapCard extends LitElement {
         <div id="root">
           <ha-map
             .entities=${this._mapEntities}
-            .layers=${this._layers}
-            .paths=${this._paths}
+            .layers=${this._layers || []}
+            .paths=${this._paths || []}
             .zoom=${config.default_zoom ?? 14}
             .autoFit=${Boolean(config.auto_fit)}
             .fitZones=${Boolean(config.fit_zones)}
@@ -578,6 +578,10 @@ class VisitHeatmapCardEditor extends LitElement {
         <div>
           <ha-switch ?checked=${c.show_moving !== false} @change=${this._onToggle("show_moving")}></ha-switch>
           <span>Show moving points and journey lines</span>
+        </div>
+        <div>
+          <ha-switch ?checked=${Boolean(c.show_all)} @change=${this._onToggle("show_all")}></ha-switch>
+          <span>Show all GPS device_tracker entities</span>
         </div>
         <div>
           <ha-switch ?checked=${Boolean(c.exclude_zones)} @change=${this._onToggle("exclude_zones")}></ha-switch>
