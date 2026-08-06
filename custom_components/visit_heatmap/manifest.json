@@ -5,7 +5,7 @@
   "config_flow": true,
   "dependencies": ["history", "http", "frontend", "websocket_api"],
   "iot_class": "local_polling",
-  "integration_type": "device",
+  "integration_type": "service",
   "codeowners": ["@your-github-username"],
   "documentation": "https://github.com/ha-visit-heatmap/ha-visit-heatmap",
   "issue_tracker": "https://github.com/ha-visit-heatmap/ha-visit-heatmap/issues",
