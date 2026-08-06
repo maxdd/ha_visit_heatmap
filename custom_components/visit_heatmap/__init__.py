@@ -143,7 +143,10 @@ async def _register_frontend(hass: HomeAssistant) -> None:
         "/visit_heatmap",
         str(Path(__file__).parent / "www"),
     )
-    frontend.add_extra_js_url(hass, CARD_URL)
+    if hasattr(frontend, "async_add_extra_js_url"):
+        await frontend.async_add_extra_js_url(hass, CARD_URL)
+    else:
+        frontend.add_extra_js_url(hass, CARD_URL)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigType) -> bool:

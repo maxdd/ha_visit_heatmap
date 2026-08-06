@@ -43,14 +43,10 @@ Design rationale and decisions are recorded as ADRs in [`docs/adr/`](docs/adr/).
    `device_tracker` entities you want to map (`person` entities are not mapped —
    pick their underlying `device_tracker` instead).
 
-The card resource is registered automatically (storage-mode dashboards). If your
-dashboard uses YAML-mode resources, add it manually:
-
-```yaml
-resources:
-  - url: /hacsfiles/ha-visit-heatmap/visit-heatmap-card.js
-    type: module
-```
+The integration registers the card bundle as a frontend module (via
+`add_extra_js_url`), so the card is available on every dashboard without adding
+a Lovelace resource. If you ever need to load it manually, it is also served at
+`/visit_heatmap/visit-heatmap-card.js`.
 
 ## Card configuration
 
