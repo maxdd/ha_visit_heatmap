@@ -28,23 +28,34 @@ async def async_backfill(
 
     from homeassistant.components import history
 
+    entity_ids = [s.entity_id for s in hass.states.async_all("device_tracker")]
+    if not entity_ids:
+        return 0
+
     now = dt_util.utcnow()
     start = now - timedelta(days=backfill_days)
     states_map = await history.state_changes_during_period(
-        hass, start, now, include_start_time_state=True
+        hass,
+        start,
+        now,
+        entity_id=entity_ids,
+        include_start_time_state=True,
     )
 
     count = 0
-    for entity_id, state_list in states_map.items():
-        if not entity_id.startswith("device_tracker."):
-            continue
+    for state_list in states_map.values():
         for state in state_list:
             lat = state.attributes.get("latitude")
             lon = state.attributes.get("longitude")
             if lat is None or lon is None:
                 continue
             action = store.add_fix(
-                entity_id, lat, lon, state.last_updated, dedupe_radius, speed_threshold
+                state.entity_id,
+                lat,
+                lon,
+                state.last_updated,
+                dedupe_radius,
+                speed_threshold,
             )
             if action in ("added", "refreshed"):
                 count += 1
