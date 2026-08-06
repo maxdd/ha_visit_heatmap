@@ -83,7 +83,8 @@ class VisitHeatmapRuntime:
     async def _flush(self) -> None:
         async with self._flush_lock:
             self.store.purge(self.retention_days, utc_now())
-            await self.hass.async_add_executor_job(self.store.save)
+            payload = self.store.payload()
+            await self.hass.async_add_executor_job(self.store.save_payload, payload)
 
     def _on_state_changed(self, event) -> None:
         state = event.data.get("new_state")

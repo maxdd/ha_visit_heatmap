@@ -50,8 +50,9 @@ class VisitStore:
                 }
             )
 
-    def save(self) -> None:
-        payload = {
+    def payload(self) -> dict:
+        """JSON-safe payload, built on the event loop (never cross-thread)."""
+        return {
             "version": STORE_VERSION,
             "rows": [
                 {
@@ -65,6 +66,9 @@ class VisitStore:
                 for row in self.rows
             ],
         }
+
+    def save_payload(self, payload: dict) -> None:
+        """Atomically persist a payload captured on the event loop."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(
             dir=str(self._path.parent), prefix=f".{self._path.name}."
@@ -76,6 +80,10 @@ class VisitStore:
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+    def save(self) -> None:
+        """Snapshot current rows and persist (for tests / convenience)."""
+        self.save_payload(self.payload())
 
     def add_fix(
         self,

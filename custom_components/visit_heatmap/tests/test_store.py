@@ -1,5 +1,6 @@
 """Tests for the JSON store durability and query."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 
@@ -42,6 +43,25 @@ def test_query_payload_shape_matches_ws_contract(store, tmp_path):
     assert row["moving"] is False
     assert row["last_seen"].endswith("Z")
     assert datetime.fromisoformat(row["last_seen"].rstrip("Z") + "+00:00") == t
+
+
+def test_payload_is_json_safe(store, tmp_path):
+    st = store.VisitStore(tmp_path / "v.json")
+    st.add_fix("dt.a", 1.0, 1.0, datetime(2026, 8, 6, 12, 0, 0, tzinfo=UTC), 100.0, 2.0)
+    payload = st.payload()
+    assert payload["version"] == 1
+    assert json.dumps(payload)  # no datetime objects → serializable
+    assert isinstance(payload["rows"][0]["last_seen"], str)
+    assert payload["rows"][0]["last_seen"].endswith("Z")
+
+
+def test_save_payload_writes_loadable_file(store, tmp_path):
+    st = store.VisitStore(tmp_path / "v.json")
+    st.add_fix("dt.a", 1.0, 1.0, datetime(2026, 8, 6, 12, 0, 0, tzinfo=UTC), 100.0, 2.0)
+    st.save_payload(st.payload())
+    assert st._path.exists()
+    reloaded = store.VisitStore(st._path)
+    assert len(reloaded.rows) == 1
 
 
 def test_query_ignores_person_entities(store, tmp_path):
