@@ -90,6 +90,23 @@ ruff check custom_components/visit_heatmap
 
 There is no test runtime for the card; verify by eye on a Home Assistant instance.
 
+### Local dev against a docker-compose Home Assistant
+
+Instead of HACS, bind-mount this repo's `custom_components` over the container's
+(live code edits apply on HA restart or integration reload):
+
+```yaml
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    volumes:
+      - /path/to/ha-visit-heatmap/custom_components:/config/custom_components
+```
+
+Then restart HA and add the **Visit Heatmap** integration. Only mount the whole
+`custom_components` directory if you don't already track other custom integrations
+in it; otherwise copy the `visit_heatmap` folder in instead.
+
 ## Releasing
 
 Releases are published as GitHub releases with a `visit-heatmap.zip` asset
