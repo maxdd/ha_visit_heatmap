@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Visit Heatmap",
+        "description": "Records visit points from every GPS device_tracker entity and exposes them to the Visit Heatmap card. No configuration needed."
+      }
+    },
+    "abort": {
+      "already_configured": "Visit Heatmap is already configured. Add a Visit Heatmap card to a dashboard to use it."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Visit Heatmap options",
+        "description": "Tune how fixes are classified and stored.",
+        "data": {
+          "dedupe_radius": "Dedupe radius (m): a new fix this close to a past visit refreshes it instead of adding a duplicate",
+          "move_speed_threshold": "Moving speed threshold (m/s): fixes above this speed are treated as travel",
+          "retention_days": "Retention (days): how long visits are kept, regardless of a card's horizon",
+          "backfill_days": "Backfill (days): recorder history imported on first install"
+        }
+      }
+    }
+  }
+}

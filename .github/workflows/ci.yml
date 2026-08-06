@@ -17,7 +17,7 @@ jobs:
           pip install ruff pytest
       - name: Validate JSON metadata
         run: |
-          python -c "import json; [json.load(open(f)) for f in ('hacs.json', 'custom_components/visit_heatmap/manifest.json')]"
+          python -c "import json; [json.load(open(f)) for f in ('hacs.json', 'custom_components/visit_heatmap/manifest.json', 'custom_components/visit_heatmap/strings.json', 'custom_components/visit_heatmap/translations/en.json')]"
       - name: Lint
         run: ruff check custom_components/visit_heatmap --exclude custom_components/visit_heatmap/www
       - name: Test
