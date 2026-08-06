@@ -43,7 +43,14 @@ Design rationale and decisions are recorded as ADRs in [`docs/adr/`](docs/adr/).
    `device_tracker` entities you want to map (`person` entities are not mapped —
    pick their underlying `device_tracker` instead).
 
-The card resource is registered automatically; no manual resource step is required.
+The card resource is registered automatically (storage-mode dashboards). If your
+dashboard uses YAML-mode resources, add it manually:
+
+```yaml
+resources:
+  - url: /hacsfiles/ha-visit-heatmap/visit-heatmap-card.js
+    type: module
+```
 
 ## Card configuration
 
@@ -97,7 +104,8 @@ ruff check custom_components/visit_heatmap
 real `logic.py`/`store.py` pipeline and prints the resulting rows with their
 decay opacities — a no-HA way to see dedupe, classification, and the fade work.
 
-There is no test runtime for the card; verify by eye on a Home Assistant instance.
+The card's pure logic is tested with `node --test` (see the card logic tests above);
+the full card render is only verifiable by eye on a Home Assistant instance.
 
 ### Local dev against a docker-compose Home Assistant
 
