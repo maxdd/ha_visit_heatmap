@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Enabling the integration creates a config entry and subscribes to `device_tracker` state-change events; only entities exposing GPS lat/lon are considered.
-- [ ] A stationary fix within `dedupe_radius` of an existing row for the same device refreshes that row (`last_seen` → now, `first_seen` untouched) instead of creating a new row.
-- [ ] Speed between consecutive fixes ≥ `move_speed_threshold` classifies a fix as moving; below it, stationary; the first fix for a device is stationary.
-- [ ] The store survives restarts; writes are atomic and coalesced; rows older than `retention_days` are purged on startup and opportunistically.
-- [ ] Unit tests cover dedupe/refresh, still-vs-moving classification, and retention pruning.
+- [x] Enabling the integration creates a config entry and subscribes to `device_tracker` state-change events; only entities exposing GPS lat/lon are considered.
+- [x] A stationary fix within `dedupe_radius` of an existing row for the same device refreshes that row (`last_seen` → now, `first_seen` untouched) instead of creating a new row.
+- [x] Speed between consecutive fixes ≥ `move_speed_threshold` classifies a fix as moving; below it, stationary; the first fix for a device is stationary.
+- [x] The store survives restarts; writes are atomic and coalesced; rows older than `retention_days` are purged on startup and opportunistically.
+- [x] Unit tests cover dedupe/refresh, still-vs-moving classification, and retention pruning.

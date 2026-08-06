@@ -4,8 +4,8 @@
 
 **Blocked by:** 01 — Integration core: record GPS fixes into the store
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Options UI exposes `dedupe_radius`, `move_speed_threshold`, `retention_days`, `backfill_days` with defaults from the glossary.
-- [ ] Saved options persist across restarts and immediately affect new ingest/purge behavior.
-- [ ] Lowering `retention_days` purges eligible rows without user intervention.
+- [x] Options UI exposes `dedupe_radius`, `move_speed_threshold`, `retention_days`, `backfill_days` with defaults from the glossary.
+- [x] Saved options persist across restarts and immediately affect new ingest/purge behavior.
+- [x] Lowering `retention_days` purges eligible rows without user intervention.

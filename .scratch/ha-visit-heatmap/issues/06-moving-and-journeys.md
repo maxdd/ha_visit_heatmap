@@ -4,8 +4,8 @@
 
 **Blocked by:** 05 — Card renders the fading visit layer
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Moving rows render distinctly from stationary visit points and are hidden when `show_moving` is off.
-- [ ] Consecutive moving fixes form journeys segmented by chronologically interleaved stationary visits and by `max_gap` gaps.
-- [ ] Journeys render as dashed polylines in the device color, each segment fading with its more-recent endpoint's opacity.
+- [x] Moving rows render distinctly from stationary visit points and are hidden when `show_moving` is off.
+- [x] Consecutive moving fixes form journeys segmented by chronologically interleaved stationary visits and by `max_gap` gaps.
+- [x] Journeys render as dashed polylines in the device color, each segment fading with its more-recent endpoint's opacity.

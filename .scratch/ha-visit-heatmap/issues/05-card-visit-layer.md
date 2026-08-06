@@ -4,10 +4,10 @@
 
 **Blocked by:** 01 — Integration core; 02 — WebSocket read API
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Single HACS repo installs the integration and registers the card JS as a frontend resource with no manual resource step.
-- [ ] The card renders stock map behavior (entities, zones, recent trails, clustering) by reusing the stock `ha-map` element and accepts the default card's config keys.
-- [ ] Visit points render as circles in per-device colors with client-side decay opacity; rows older than `horizon` are not shown.
-- [ ] Rows are fetched on load, on configured-entity state change, and on the periodic timer.
-- [ ] Tooltips show device name, last-seen time, and the enclosing zone name.
+- [x] Single HACS repo installs the integration and registers the card JS as a frontend resource with no manual resource step.
+- [x] The card renders stock map behavior (entities, zones, recent trails, clustering) by reusing the stock `ha-map` element and accepts the default card's config keys.
+- [x] Visit points render as circles in per-device colors with client-side decay opacity; rows older than `horizon` are not shown.
+- [x] Rows are fetched on load, on configured-entity state change, and on the periodic timer.
+- [x] Tooltips show device name, last-seen time, and the enclosing zone name.

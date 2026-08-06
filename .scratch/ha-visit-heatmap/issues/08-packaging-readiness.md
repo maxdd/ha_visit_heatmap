@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 — Card renders the fading visit layer; 06 — Moving fixes and journey dotted lines; 07 — Card config surface and visual editor; 03 — Backfill from recorder; 04 — Integration options flow
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] README documents install, quickstart, config reference (integration options + card config), and the glossary defaults.
 - [x] `hacs.json`/`manifest.json` validate; the repo installs from a HACS-added repository.

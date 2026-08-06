@@ -4,8 +4,8 @@
 
 **Blocked by:** 01 — Integration core: record GPS fixes into the store
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A fresh install imports up to `backfill_days` of recorder history for GPS trackers through the shared dedupe pipeline.
-- [ ] The backfill runs once; a restart with data still present does not re-run it, but an empty store does.
-- [ ] Backfilled rows are indistinguishable from live-recorded rows in the store and via the WS API.
+- [x] A fresh install imports up to `backfill_days` of recorder history for GPS trackers through the shared dedupe pipeline.
+- [x] The backfill runs once; a restart with data still present does not re-run it, but an empty store does.
+- [x] Backfilled rows are indistinguishable from live-recorded rows in the store and via the WS API.

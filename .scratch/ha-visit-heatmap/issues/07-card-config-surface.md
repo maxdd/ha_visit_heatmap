@@ -4,8 +4,8 @@
 
 **Blocked by:** 05 — Card renders the fading visit layer
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `decay_rate`, `horizon`, `max_gap`, `show_moving`, and `exclude_zones` are honored with the glossary defaults.
-- [ ] `exclude_zones` hides visit points falling inside any configured HA zone.
-- [ ] A visual editor config element exposes these options and validates them.
+- [x] `decay_rate`, `horizon`, `max_gap`, `show_moving`, and `exclude_zones` are honored with the glossary defaults.
+- [x] `exclude_zones` hides visit points falling inside any configured HA zone.
+- [x] A visual editor config element exposes these options and validates them.

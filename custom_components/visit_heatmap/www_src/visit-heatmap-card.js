@@ -188,6 +188,7 @@ class VisitHeatmapCard extends LitElement {
         entities: this._entities,
       });
       this._rows = res.rows || [];
+      this._error = undefined;
     } catch (err) {
       this._error = err.message || String(err);
       this._rows = [];

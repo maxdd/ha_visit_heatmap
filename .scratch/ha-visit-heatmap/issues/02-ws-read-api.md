@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Integration core: record GPS fixes into the store
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `visit_heatmap/points` accepts an entity list and returns rows shaped as device, lat, lon, `first_seen`, `last_seen`, `moving` for exactly those entities.
 - [x] Rows older than `retention_days` are excluded; no horizon filtering happens server-side.
