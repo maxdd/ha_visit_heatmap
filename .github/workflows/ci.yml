@@ -36,6 +36,8 @@ jobs:
         run: node --test custom_components/visit_heatmap/www_src/logic.test.mjs
       - name: Build card
         run: npm run build
+      - name: Test card render in jsdom
+        run: node --test custom_components/visit_heatmap/www_src/card.test.mjs
       - name: Verify bundle
         run: node --check custom_components/visit_heatmap/www/visit-heatmap-card.js
       - name: Bundle matches committed output

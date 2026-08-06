@@ -91,7 +91,8 @@ with clickable diagrams, the decay curve, and a logic playground.
 ```bash
 npm install
 npm run build       # builds the card bundle into custom_components/visit_heatmap/www/
-node --test custom_components/visit_heatmap/www_src/logic.test.mjs  # card logic tests
+node --test custom_components/visit_heatmap/www_src/logic.test.mjs  # card pure logic
+node --test custom_components/visit_heatmap/www_src/card.test.mjs   # card render in jsdom
 python -m pytest     # unit tests for the integration's pure logic
 ruff check custom_components/visit_heatmap
 ```
@@ -100,8 +101,9 @@ ruff check custom_components/visit_heatmap
 real `logic.py`/`store.py` pipeline and prints the resulting rows with their
 decay opacities — a no-HA way to see dedupe, classification, and the fade work.
 
-The card's pure logic is tested with `node --test` (see the card logic tests above);
-the full card render is only verifiable by eye on a Home Assistant instance.
+The card's pure logic is unit-tested (`logic.test.mjs`) and the built bundle is
+smoke-tested in jsdom (`card.test.mjs`, no browser needed); the full interactive
+map render is only verifiable by eye on a Home Assistant instance.
 
 ### Local dev against a docker-compose Home Assistant
 
