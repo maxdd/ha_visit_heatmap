@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visit Heatmap — interactive code wiki</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1c2333;
+    --muted: #5b6472;
+    --line: #e3e6ec;
+    --accent: #1976d2;
+    --accent-2: #8e24aa;
+    --code-bg: #10141f;
+    --code-panel: #161b2b;
+    --code-ink: #d6dcea;
+    --tok-k: #82aaff;
+    --tok-s: #c3e88d;
+    --tok-n: #f78c6c;
+    --tok-c: #616e85;
+    --tok-p: #89ddff;
+    --shadow: 0 1px 2px rgba(16,20,31,.06);
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1117;
+      --panel: #161a22;
+      --ink-2: #e8ecf3;
+      --muted: #98a1b0;
+      --line: #262d3a;
+      --code-panel: #10141f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink-2);
+  }
+  pre, code, .mono { font-family: "SF Mono", "JetBrains Mono", Consolas, "Liberation Mono", monospace; }
+
+  /* sidebar */
+  nav {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 264px;
+    background: var(--panel); border-right: 1px solid var(--line);
+    padding: 18px 14px; overflow-y: auto; z-index: 30;
+  }
+  nav .brand { font-weight: 700; font-size: 15px; display: block; margin: 4px 6px 2px; }
+  nav .sub { color: var(--muted); font-size: 12px; margin: 0 6px 14px; }
+  nav a {
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+    padding: 6px 8px; border-radius: 8px; color: var(--ink-2); text-decoration: none;
+    font-size: 13px;
+  }
+  nav a:hover { background: rgba(25,118,210,.08); }
+  nav a .k { color: var(--muted); font-size: 10px; }
+  nav a.active { background: rgba(25,118,210,.14); font-weight: 600; }
+  nav .group { margin-top: 14px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin-left: 8px; }
+
+  main { margin-left: 264px; padding: 28px 40px 80px; max-width: 1120px; }
+
+  h1 { font-size: 30px; margin: 0 0 6px; }
+  h2 { font-size: 22px; margin: 44px 0 4px; scroll-margin-top: 16px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; }
+  h2:first-of-type { margin-top: 8px; }
+  h2 .n {
+    display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center;
+    border-radius: 8px; background: var(--accent); color: #fff; font-size: 13px;
+    margin-right: 10px; vertical-align: middle;
+  }
+  h2 .tag {
+    display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center;
+    border-radius: 9px; background: var(--accent); color: #fff; font-size: 12px;
+    margin-right: 10px; vertical-align: middle;
+  }
+  .robl { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .widget-grid { display: flex; flex-wrap: wrap; gap: 18px; }
+  p { color: var(--ink-2); }
+  .lead { color: var(--muted); font-size: 16px; max-width: 72ch; }
+
+  a { color: var(--accent); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px 18px; margin: 16px 0;
+  }
+  .muted { color: var(--muted); }
+  code.inline {
+    background: rgba(127,140,160,.14); border-radius: 6px; padding: 1px 6px;
+    font-size: .86em;
+  }
+
+  /* code blocks */
+  .codewrap { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 12px 0; }
+  .codewrap summary {
+    cursor: pointer; padding: 8px 12px; font-size: 12px; font-weight: 600;
+    background: var(--panel); color: var(--muted); user-select: none;
+  }
+  .codewrap summary:hover { color: var(--accent); }
+  .codebox {
+    margin: 0; padding: 14px 16px; background: var(--code-panel); color: var(--code-ink);
+    overflow-x: auto; font-size: 12.5px; line-height: 1.55;
+  }
+  .tok-k { color: var(--tok-k); font-weight: 600; }
+  .tok-s { color: var(--tok-s); }
+  .tok-n { color: var(--tok-n); }
+  .tok-c { color: var(--tok-c); font-style: italic; }
+  .tok-p { color: var(--tok-p); }
+  .tok-f { color: var(--tok-p); }
+  .ln { color: #4a5470; user-select: none; padding-right: 16px; text-align: right; display: inline-block; width: 34px; }
+
+  /* flows */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; margin: 14px 0; }
+  .fnode {
+    flex: 1 1 130px; min-height: 66px; display: flex; flex-direction: column; justify-content: center;
+    border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 12px; cursor: pointer;
+    background: var(--panel); transition: all .15s ease;
+  }
+  .fnode .t { font-weight: 600; font-size: 13px; }
+  .fnode .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .fnode .env {
+    display: inline-block; align-self: flex-start; margin-top: 6px; font-size: 10px;
+    color: var(--muted); background: rgba(127,140,160,.14); padding: 0 7px; border-radius: 6px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+  .fnode:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .fnode.active { border-color: var(--accent); background: rgba(25,118,210,.08); box-shadow: 0 0 0 3px rgba(25,118,210,.15); }
+  .farrow { display: flex; align-items: center; color: var(--muted); font-size: 18px; padding: 0 2px; align-self: center; }
+
+  .fpane { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px 18px; margin-top: 4px; }
+  .fstep { display: none; }
+  .fstep.active { display: block; animation: fadein .2s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+  .fstep h4 { margin: 0 0 6px; font-size: 15px; }
+  .fstep .loc { font-size: 11px; color: var(--accent); }
+  .fstep p { margin: 6px 0 4px; }
+
+  /* chips / cards */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px 14px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip .t { font-weight: 600; font-size: 13px; }
+  .chip .s { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  /* controls */
+  .widget { display: grid; gap: 12px; align-items: center; }
+  .widget .lbl { font-size: 12px; color: var(--muted); }
+  .widget input[type=range] { width: 220px; accent-color: var(--accent); }
+  .widget .ro { font-variant-numeric: tabular-nums; font-family: "SF Mono", Consolas, monospace; font-size: 14px; }
+  .readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 10px; margin-top: 10px; }
+  .readout .cell { background: rgba(25,118,210,.06); border-radius: 10px; padding: 8px 12px; }
+  .readout .cell b { display: block; font-size: 13px; }
+  .readout .cell span { font-size: 12px; color: var(--muted); }
+
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .pill.add { background: #2e7d32; color: #fff; }
+  .pill.ref { background: #f9a825; color: #222; }
+  .pill.dup { background: #616161; color: #fff; }
+  .pill.mov { background: var(--accent-2); color: #fff; }
+  .pill.sta { background: #2e7d32; color: #fff; }
+
+  .legend li { list-style: none; font-size: 12px; color: var(--muted); margin: 2px 0; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+
+  footer { margin-top: 48px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+  @media (max-width: 900px) {
+    nav { position: static; width: auto; max-height: 220px; border-right: 0; border-bottom: 1px solid var(--line); }
+    main { margin-left: 0; padding: 20px 16px 60px; }
+  }
+
+  /* scroll hint */
+  .hint { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <span class="brand">📌 Visit Heatmap</span>
+  <span class="sub">interactive code wiki</span>
+  <div class="group">Guide</div>
+  <a href="#overview">Overview <span class="k">01</span></a>
+  <a href="#ground-truth">The ground truth: data flow <span class="k">02</span></a>
+  <a href="#architecture">Two halves <span class="k">03</span></a>
+  <div class="group">Integration</div>
+  <a href="#lifecycle">Lifecycle <span class="k">04</span></a>
+  <a href="#capture">Capturing a fix <span class="k">05</span></a>
+  <a href="#classify">Moving vs stationary <span class="k">06</span></a>
+  <a href="#dedupe">Dedupe &amp; refresh <span class="k">07</span></a>
+  <a href="#storage">Storage &amp; rotation <span class="k">08</span></a>
+  <a href="#ws">Reading rows: WebSocket <span class="k">09</span></a>
+  <a href="#backfill">Backfill from recorder <span class="k">10</span></a>
+  <a href="#options">Options &amp; config <span class="k">11</span></a>
+  <div class="group">Card</div>
+  <a href="#card-life">Card lifecycle <span class="k">12</span></a>
+  <a href="#card-render">Rendering the visit layer <span class="k">13</span></a>
+  <a href="#journey">Journey lines <span class="k">14</span></a>
+  <a href="#decay">The decay model <span class="k">15</span></a>
+  <div class="group">Reference</div>
+  <a href="#playground">Playground <span class="k">16</span></a>
+  <a href="#files">File index <span class="k">17</span></a>
+  <a href="#testing">Testing &amp; CI <span class="k">18</span></a>
+  <a href="#glossary">Glossary <span class="k">19</span></a>
+  <a href="#adr">Decisions (ADRs) <span class="k">20</span></a>
+</nav>
+
+<main>
+  <h1>Visit Heatmap — how it works</h1>
+  <p class="lead">
+    Every position a tracked device has visited is drawn on a map with an
+    opacity proportional to recency: today is solid, each day it fades, and once
+    a visit is older than a configurable <em>horizon</em> it disappears. A small
+    companion integration records the positions durably; a custom card reuses the
+    stock <code class="inline">ha-map</code> and <em>injects</em> the fading visit layer.
+  </p>
+  <div class="hint">Click any box in a flow diagram to see what it does. Open any <em>▸ code</em> block for the real source. Scroll through — each section links to the next.</div>
+
+  <section id="overview">
+    <h2><span class="tag">01</span>Overview — ten-second tour</h2>
+    <div class="panel">
+      <p><b>The integration records; the card paints.</b> The two halves never talk
+      directly — they meet only over a Home Assistant WebSocket message and a JSON file
+      on disk.</p>
+      <div class="flow" id="flow-overview"></div>
+      <div class="fp" data-flow="flow-overview">
+        <div class="fstep" data-step="ov-capture">
+          <h4>Capture</h4>
+          <p>Every GPS <code class="inline">device_tracker.*</code>&nbsp;state change fires
+          <code class="inline">EVENT_STATE_CHANGED</code>. The integration keeps a
+          debounced subscriber that turns the event's <code class="inline">latitude /
+          longitude / last_updated</code> into a <em>fix</em> — the raw unit of truth.</p>
+          <p class="muted">See <a href="#capture">§05 Capturing a fix</a>.</p>
+        </div>
+        <div class="fstep" data-on="*">
+          <h4>Record</h4>
+          <p>Each fix is classified (moving or stationary) and either added as a new
+          row or used to <em>refresh</em> an existing one within the dedupe radius —
+          so revisiting a place never piles up duplicate dots. Rows persist to
+          <code class="inline">visit-heatmap.json</code> via debounced atomic writes.</p>
+          <p class="muted">See <a href="#dedupe">§07</a> and <a href="#storage">§08</a>.</p>
+        </div>
+        <div class="fstep" data-on="*">
+          <h4>Read</h4>
+          <p>The card asks for rows with the <code class="inline">visit_heatmap/points</code>
+          WebSocket command filtered to the entities it draws.</p>
+          <p class="muted">See <a href="#backfill">§09 Backfill &amp; the read API</a> and <a href="#card-render">§13</a>.</p>
+        </div>
+        <div class="fstep" data-on="*">
+          <h4>Paint</h4>
+          <p>The card turns each row into a <code class="inline">Leaflet.circleMarker</code>
+          whose fill opacity is the day-fractioning decay of its last visit, injects those into a
+          stock <code class="inline">&lt;ha-map&gt;</code>/&nbsp;layers property — no reimplementation of Leaflet needed.</p>
+          <p class="muted">See <a href="#card-render">§13</a> and <a href="#decay">§15</a>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pipeline">
+    <h2><span class="tag">02</span>The ground truth: one fix end-to-end</h2>
+    <p>This is the whole journey of a single position update. Click each stage.
+    The <b>env</b> badges tell you which process owns the stage.</p>
+    <div class="flow" id="flow-pipeline"></div>
+    <div class="fp" data-flow="flow-pipeline">
+      <div class="fstep" data-on="*">
+        <h4>1 · A tracker updates</h4>
+        <span class="loc">HA core — outside this repo</span>
+        <p>A tracker integration (companion app, OwnTracks, GPSLogger, GoogleFindMy-HA, …)
+        publishes a new state for e.g. <code class="inline">device_tracker.phone</code>.</p>
+        <p class="muted">This project is deliberately agnostic: it consumes <em>any</em> tracker whose state carries
+        <code class="inline">latitude</code>/<code class="inline">longitude</code> attributes.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>2 — The bus delivers STATE_CHANGED</h4>
+        <span class="loc">core/bus.py</span>
+        <p>HA dispatches <code class="inline">EVENT_STATE_CHANGED</code> to every subscriber.
+        We queue-audited one at <code class="inline">__init__.py</code>.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>3 — Runtime filters &amp; classifies</h4>
+        <span class="loc">__init__.py</span>
+        <p><code class="inline">_on_state_changed</code> accepts only
+        <code class="inline">device_tracker.*</code> entities with GPS attributes,
+        computes speed against the previous fix, and decides <em>moving or stationary</em>.
+        See <a href="#classify">§06</a>.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>4 — add_fix: dedupe or add</h4>
+        <span class="loc">logic.py</span>
+        <p>The pure function checks every existing row for the same device within
+        <code class="inline">dedupe_radius</code> (default 100 m). A hit <em>refreshes</em>
+        <code class="inline">last_seen</code>; a miss <em>adds</em> a row. Identical timestamps
+        are a no-op <code>duplicate</code>. See <a href="#dedupe">§07</a>.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>5 — Debounced durable save</h4>
+        <span class="loc">store.py</span>
+        <p>Mutations schedule a save (debounced 2 s, cancellable so bursts collapse into one).
+        <code class="inline">save()</code> writes a temp file then
+        <code class="inline">os.replace</code> — atomic, crash-safe.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>6 — Card fetches</h4>
+        <span class="loc">websocket.py → visit-heatmap-card.js</span>
+        <p>The card sends <code class="inline">visit_heatmap/points</code> with its entity list.
+        The command runs <code class="inline">store.query</code> and returns JSON-safe rows
+        (retention-filtered only — never the card's visual horizon).</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>7 — Layers are painted</h4>
+        <span class="loc">visit-heatmap-card.js</span>
+        <p><code class="inline">_buildLayers</code> creates a
+        <code class="inline">circleMarker</code> per compatible residence point with opacity
+        from the decay model, and dashed polylines between moving fixes. The stack of layers is
+        passed to <code class="inline">&lt;ha-map .layers&gt;</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <h2><span class="tag">03</span>Two halves, one HACS repo</h2>
+    <div class="grid">
+      <div class="chip" onclick="scrollToId('lifecycle')">
+        <div class="t">⚙️ <code>custom_components/visit_heatmap/</code></div>
+        <div class="d">The "recording" half — a Home Assistant integration that stores
+        visits durably. Only new HA, pure, unit-tested.</div>
+      </div>
+      <div class="chip" onclick="scrollToId('card-life')">
+        <div class="t">🗺️ <code>www_src/visit-heatmap-card.js</code></div>
+        <div class="d">The "painting" half — a LitElement card cloned from HA's own map card
+          core, blending the visit layer into the native map element.</div>
+      </div>
+    </div>
+    <p>They communicate across a <b>single seam</b>: the WebSocket command
+    <code class="inline">visit_heatmap/points</code>. Keeping recording and rendering in one repo
+    means the card and integration ship and version together for <em>this</em> user,
+    while the seam keeps them individually replacable.</p>
+  </section>
+
+  <section id="lifecycle">
+    <h2><span class="tag">04</span>Integration lifecycle</h2>
+    <div class="panel">
+      <p>Home Assistant loads a config-entity-domain integration like this:</p>
+      <ol>
+        <li><code class="inline">async_setup</code> runs <b>once</b> per domain lifetime —
+        it registers the WebSocket command (so options-flow reloads can't double-register).
+        </li>
+        <li><code class="inline">async_setup_entry</code> builds a single
+        <code class="inline">VisitHeatmapRuntime</code>, starts the store, subscribes
+        to <code class="inline">EVENT_STATE_CHANGED</code>, registers the frontend resource,
+        and attaches the update listener.</li>
+        <li>Changing options triggers <code class="inline">async_reload_entry</code>:
+        unload then re-setup — fresh store, same command.</li>
+        <li><code class="inline">async_unload_entry</code> tears down: unsub bus listener,
+        cancel save+backfill tasks, flush any pending rows to disk.</li>
+      </ol>
+    </div>
+    <details class="codewrap" open>
+      <summary>▸ __init__.py — runtime &amp; setup</summary>
+      <details class="codewrap" style="border:none;margin:0">
+        <summary>▸ VisitHeatmapRuntime (start / stop / debounced save)</summary>
+        <pre class="codebox" data-snippet="s-runtime"></pre>
+      </details>
+      <details class="codewrap" style="border:none;margin:0">
+        <summary>▸ async_setup / async_setup_entry / reload / unload</summary>
+        <pre class="codebox" data-snippet="s-setup"></pre>
+      </details>
+    </details>
+  </section>
+
+  <section id="capture">
+    <h2><span class="tag">05</span>Capturing a fix (the event path)</h2>
+    <p>Everything flows through one event-handler. The pipeline is deliberately thin;
+    <b>all the decisions live in pure functions</b> (see <a href="#classify">§06</a> and
+    <a href="#dedupe">§07</a>) so they can be unit-tested without Home Assistant.</p>
+    <details class="codewrap">
+      <summary>▸ __init__.py — _on_state_changed + _schedule_save</summary>
+      <pre class="codebox" data-snippet="s-capture"></pre>
+    </details>
+    <ul class="legend">
+      <li><b>filter</b> — only <code class="inline">device_tracker.*</code> &amp; GPS-bearing states</li>
+      <li><b>record</b> — <code class="inline">last_updated</code> as timestamp; dedupe+classify in one call</li>
+      <li><b>persist</b> — only <code>added</code>/<code>refreshed</code> schedule a save; <code>duplicate</code> is free</li>
+    </ul>
+  </section>
+
+  <section id="classify">
+    <h2><span class="tag">06</span>Moving vs stationary</h2>
+    <p>The design (ADR-0002) separates <em>places you stayed</em> from <em>how you got there</em>.
+    The classifier is a one-liner made of three pure functions:</p>
+    <div class="flow" id="flow-classify"></div>
+    <div class="fp" data-flow="flow-classify">
+      <div class="fstep active" data-on="*">
+        <h4>Step by step</h4>
+        <p><code class="inline">speed_between(prev, current)</code> divides great-circle
+        distance (<code class="inline">haversine_m</code>) by wall-clock delta
+        <code class="inline">current.timestamp − prev.timestamp</code>. The first fix of a
+        device has no previous fix → speed is <code class="inline">None</code>.</p>
+        <p><code class="inline">classify_moving(speed, threshold)</code> returns
+        <code class="inline">False</code> when speed is <code class="inline">None</code>
+        (first fix counts as a stay), else <code class="inline">speed &gt;= threshold</code>
+        with default threshold <code class="inline">2&nbsp;m/s</code>.</p>
+      </div>
+    </div>
+    <details class="codewrap">
+      <summary>▸ logic.py — haversine, speed_between, classify_moving</summary>
+      <pre class="codebox" data-snippet="s-classify"></pre>
+    </details>
+
+    <h3 style="margin-top:28px">Decision grid</h3>
+    <table>
+      <tr><th>Situation</th><th>speed</th><th>moving?</th><th>Rendered as</th></tr>
+      <tr><td>First fix for a device</td><td class="mono">None</td><td><span class="pill sta">stationary</span></td><td>solid dot (home).</td></tr>
+      <tr><td>Repeated staying-motion &lt; threshold</td><td class="mono">&lt; 2 m/s</td><td><span class="pill sta">stationary</span></td><td>the residence's dot.</td></tr>
+      <tr><td>Walking/car/train, w thick clicks &gt;= threshold</td><td class="mono">&gt;= 2 m/s</td><td><span class="pill mov">moving</span></td><td>small faint dots + dotted journey lines.</td></tr>
+    </table>
+  </section>
+
+  <section id="dedupe">
+    <h2><span class="tag">07</span>Dedupe &amp; refresh</h2>
+    <p>A phone records a position every few minutes. Without dedupe, an evening at home
+    spawns dozens of overlapping dots. <code class="inline">add_fix</code> solves this: a
+    new fix within the dedupe radius of a device's existing rows <b>refreshes the existing
+    row's <code class="inline">last_seen</code></b> (and its moving flag) instead of appending.
+    <code class="inline">first_seen</code> never changes — so the dot's <em>start</em> of a
+    stay stays put.</p>
+    <div class="flow" id="flow-dedupe"></div>
+    <div class="fp" data-flow="flow-dedupe">
+      <div class="fstep" data-on="*">
+        <h4>added</h4><span class="loc">logic.py add_fix</span>
+        <p>No row for this device within <code class="inline">dedupe_radius</code> → a new row
+        with <code class="inline">first_seen = last_seen = fix.timestamp</code>. Always schedules a save.
+        New-dot appears.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>refreshed</h4><span class="loc">logic.py add_fix</span>
+        <p>A row for this device exists within the radius → its <code class="inline">last_seen</code>
+        advances to the fix's timestamp (<code class="inline">first_seen</code> untouched; the
+        moving flag flips to the new fix's classification). The card re-derives the dot's
+        opacity from the later last-seen, so a re-visited place stays solid — no pile-up.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>duplicate</h4><span class="loc">logic.py add_fix</span>
+        <p>An exact equal timestamp for that device (rare, e.g. recorder re-delivery) — nothing
+          changes, no save scheduled.</p>
+      </div>
+    </div>
+    <details class="codewrap">
+      <summary>▸ logic.py — add_fix (the whole classify+dedupe decision)</summary>
+      <pre class="codebox" data-snippet="s-addfix"></pre>
+    </details>
+    <p class="hint">When backfill replays recorder history it feeds the <em>same</em>
+      <code class="inline">add_fix</code>, so backfilled rows are indistinguishable from
+      live ones (see <a href="#backfill">§10</a>).</p>
+  </section>
+
+  <section id="storage">
+    <h2><span class="tag">08</span>Storage &amp; rotation</h2>
+    <p>Rows live in memory and are mirrored to
+      <code class="inline">visit-heatmap.json</code> next to HA's config. The JSON encode/</code>decode
+      keeps <code class="inline">datetime</code> objects on the Python side; the file stores
+      ISO strings with a trailing <code class="inline">Z</code>.</p>
+    <div class="panel">
+      <pre class="mono" style="margin:0">{
+  "version": 1,
+  "rows": [
+    {
+      "device": "device_tracker.phone",
+      "lat": 51.5074, "lon": -0.1278,
+      "first_seen": "2026-08-06T18:12:03.400000Z",
+      "last_seen":  "2026-08-06T18:12:03.400000Z",
+      "moving": false
+    }
+  ]
+}</pre>
+    </div>
+    <ul>
+      <li><b>Atomic</b> — writes to a temp file in the same dir then
+      <code class="inline">os.replace</code>; never a torn file.</li>
+      <li><b>Debounced</b> — a 2&nbsp;s trailing debounce collapses bursts of many fixes
+      into one disk write (see §05).</li>
+      <li><b>Rotation</b> — <code class="inline">purge(retention_days)</code> drops rows
+      with <code class="inline">last_seen</code> older than the retention (default 90&nbsp;days).
+      This is a capacity limit, independent of the card's cosmetic <em>horizon</em>.</li>
+      <li><b>Rebuild</b> — on start, <code class="inline">rebuild_last_fixes</code> re-seeds
+      the per-device <em>previous fix</em> from the most recent stored row, so classification
+      survives HA restarts.</li>
+    </ul>
+    <details class="codewrap">
+      <summary>▸ store.py — save &amp; load &amp; query</summary>
+      <pre class="codebox" data-snippet="s-store"></pre>
+    </details>
+  </section>
+
+  <section id="backfill">
+    <h2><span class="tag">09</span>Backfill — importing the past <span class="hint">…and the read API</span></h2>
+    <p>On first install the store is empty, so the map would be blank until devices move.
+    <code class="inline">async_backfill</code> pulls up to <code class="inline">backfill_days</code>
+    (default 10) of recorder history via
+    <code class="inline">history.state_changes_during_period</code> and replays each
+    state through the regular <code class="inline">add_fix</code> pipeline. The shared slot record
+    is debounced like live data.</p>
+    <details class="codewrap">
+      <summary>▸ backfill.py — async_backfill</summary>
+      <pre class="codebox" data-snippet="s-backfill"></pre>
+    </details>
+
+    <h3>Reading back — the WebSocket command</h3>
+    <p>The card (and anything else admined) reads rows through
+      <code class="inline">visit_heatmap/points</code>. No auth beyond the standard
+      websocket layer; it returns <b>retention-filtered only</b>. The card's horizon is
+      applied client-side.</p>
+    <details class="codewrap">
+      <summary>▸ websocket.py — the command handler</summary>
+      <pre class="codebox" data-snippet="s-ws"></pre>
+    </details>
+    <div class="panel">
+    <p>Example exchange sent by the card:</p>
+    <pre class="mono" style="margin:0">→ { "id": 7, "type": "visit_heatmap/points", "entities": ["device_tracker.phone"] }
+→ { "id": 7, "rows": [ { "device": "device_tracker.phone", "lat": 51.5074, "lon": -0.1278,
+      "first_seen": "…", "last_seen": "…", "moving": false } ] }</pre>
+    </div>
+  </section>
+
+  <section id="options">
+    <h2><span class="tag">10</span>Options flow &amp; integration config</h2>
+    <p>Installing just enables recording — there is no "selection UI", by design
+      (ADR-0001). The four tuning knobs live under
+      <b>Devices &amp; Services → Visit Heatmap → Options</b>:</p>
+    <table>
+      <tr><th>Key</th><th>Default</th><th>Meaning</th></tr>
+      <tr><td class="mono">dedupe_radius</td><td>100 m</td><td>within-radius fixes refresh instead of add</td></tr>
+      <tr><td class="mono">move_speed_threshold</td><td>2 m/s</td><td>moving classification threshold</td></tr>
+      <tr><td class="mono">retention_days</td><td>90</td><td>how long rows live on disk (server-side)</td></tr>
+      <tr><td class="mono">backfill_days</td><td>10</td><td>recorder history imported on install</td></tr>
+    </table>
+    <details class="codewrap">
+      <summary>▸ config_flow.py — the forms</summary>
+      <pre class="codebox" data-snippet="s-config"></pre>
+    </details>
+  </section>
+
+  <section id="card-life">
+    <h2><span class="tag">12</span>Card — element lifecycle</h2>
+    <p>The card is a thin LitElement. Its segment data sync drives refetching:</p>
+    <div class="flow" id="flow-cardlife"></div>
+    <div class="fp" data-flow="flow-cardlife">
+      <div class="fstep" data-on="*">
+        <h4>connectedCallback</h4>
+        <p>First fetch, then a 5-minute interval. A visibility listener resumes fetches when
+        the tab becomes visible</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>willUpdate(hass)</h4>
+        <p>When a connection identity changes, res wrestle. When any watched state's
+        <code class="inline">last_updated</code> changes, it schedules a debounced refetch.
+        Periodically re-scans the entity list for <code class="inline">show_all</code>.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>setConfig</h4>
+        <p>Validates <code class="inline">entities</code>, normalizes, rebuilds the entity map
+        colors, triggers an update.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>disconnectedCallback</h4>
+        <p>Clears the interval, the refetch timeout, the layer-verify timeout, and unsubscribes
+        the history stream — no leaked timers.</p>
+      </div>
+    </div>
+    <details class="codewrap">
+      <summary>▸ card — lifecycle, config validation, fetching</summary>
+      <pre class="codebox" data-snippet="s-cardlife"></pre>
+    </details>
+  </section>
+
+  <section id="card-render">
+    <h2><span class="tag">13</span>Rendering the visit layer</h2>
+    <div class="flow" id="flow-render"></div>
+    <div class="fp" data-flow="flow-render">
+      <div class="fstep" data-on="*">
+        <h4>_buildLayers</h4>
+        <p><b>Stationary rows</b> → one <code class="inline">circleMarker</code> (radius 6)
+        with stroke+fill colored per device; <code class="inline">fillOpacity = _opacity(row)</code>.
+        <b>Moving rows</b> → tiny dashed markers (radius 3) grouped per-device; their
+        <code>_buildPaths</code>…</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>zones &amp; tooltips</h4>
+        <p>Points inside a configured Home Assistant zone can be hidden
+          (<code class="inline">exclude_zones</code>); hovering a dot shows a tooltip with
+          device, last time, and zone name. No reverse geocoding in v1 (ADR-0004).</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>injection into ha-map</h4>
+        <p>The constructed array of Leaflet layers is bound to the stock
+        <code class="inline">&lt;ha-map&gt;</code>'s public <code class="inline">layers</code>
+        property via Lit. ha-map's own Leaflet copy adds received foreign-copy layers by
+        duck-typing (<code class="inline">layer._layerAdd</code>) — so the bundled Leaflet
+        is not instanced by users, it stays our private sturdy.</p>
+        <p class="muted">A <code class="inline">_verifyLayersInjected</code> guard periodically
+        checks <code class="inline">map.hasLayer(layer)</code> and warns if any layer was
+        dropped.</p>
+      </div>
+      <div class="fstep" data-on="*">
+        <h4>trails</h4>
+        <p>For config parity with the default map card, it also subscribes to
+        <code class="inline">history/stream</code> when <code class="inline">hours_to_show</code>
+        is set, drawing a semi-transparent trail of recent movement (the stock card's feature,
+        reused).</p>
+      </div>
+    </div>
+    <details class="codewrap">
+      <summary>▸ card — _buildLayers (the meat)</summary>
+      <pre class="codebox" data-snippet="s-layers"></pre>
+    </details>
+  </section>
+
+  <section id="journey">
+    <h2><span class="tag">14</span>Journey lines — joining the dots</h2>
+    <p>Moving rows for one device are sorted by time. A dashed polyline joins consecutive
+      dots <b>unless</b> a segment should break:</p>
+    <ul>
+      <li><b>time gap</b> — the delta exceeds <code class="inline">max_gap</code> (default 30 min);</li>
+      <li><b>stationary between</b> — a stationary row for the same device lies between the two fixes
+      (started pausing = two trips, not one);</li>
+      <li><b>too old</b> — either endpoint's opacity hit 0.</li>
+    </ul>
+    <p>A surviving segment gets the decay opacity of its <b>more-recent</b> endpoint —
+      a journey you just took is solid, a trip from last week is faint.</p>
+    <details class="codewrap">
+      <summary>▸ card — journey segmentation &amp; opacity</summary>
+      <pre class="codebox" data-snippet="s-journey"></pre>
+    </details>
+  </section>
+
+  <section id="decay">
+    <h2><span class="tag">15</span>The decay model</h2>
+    <p>Opacity is a continuous exponential fade:</p>
+    <div class="panel" style="text-align:center">
+      <p class="mono" style="font-size:22px;margin:0">opacity&nbsp;=&nbsp;(1&nbsp;−&nbsp;decay_rate)<sup>age_days</sup></p>
+      <p class="muted" style="margin-top:6px">age_days measured from <code class="inline">last_seen</code> to now; floored at 0.0.</p>
+    </div>
+    <p>The card and the backend both implement this (<code class="inline">_opacity</code> in JS,
+      <code class="inline">decay_opacity</code> in <code class="inline">logic.py</code> — the server
+      value exists only so the pytest can mirror the client contract). The two knobs:
+      <code class="inline">decay_rate</code> = the fractional decline <em>per day</em> (default
+      0.1 → 10%/day), and <code class="inline">horizon</code> = a visit vanishes once
+      age_days &gt; horizon (default 30). Both are card-side only; they never touch the store.</p>
+
+    <div class="widget panel">
+      <h3 style="margin-top:0">Try it — live curve</h3>
+      <div class="widget-grid">
+        <div>
+          <label class="l">decay_rate = <span id="rateVal" class="robl">10.0%</span> /day</label>
+          <input id="rate" type="range" min="1" max="50" value="10" step="1">
+        </div>
+        <div>
+          <label class="l">horizon = <span id="horizonVal" class="robl">30</span> days</label>
+          <input id="horizon" type="range" min="1" max="180" value="30" step="1">
+        </div>
+      </div>
+      <canvas id="curve" width="700" height="260" style="width:100%;max-width:760px;height:auto;background:var(--code-panel);border-radius:12px;margin-top:10px"></canvas>
+      <div class="readout">
+        <div class="cell"><b id="oNow">1.000</b><span>opacity right now</span></div>
+        <div class="cell"><b id="oHorizon">—</b><span>opacity at horizon</span></div>
+        <div class="cell"><b id="half">—</b><span>days to half fade</span></div>
+        <div class="cell"><b id="zero">—</b><span>day it renders invisible</span></div>
+      </div>
+      <details class="codewrap" style="margin-top:12px">
+        <summary>▸ card — _opacity &amp; _withinHorizon</summary>
+        <pre class="codebox" data-snippet="s-opacity"></pre>
+      </details>
+    </div>
+  </section>
+
+  <section id="playground">
+    <h2><span class="tag">16</span>Playground — prove the logic on yourself</h2>
+    <p>These simulators run the <em>exact same functions</em> as the repo
+      (<code class="inline">logic.py</code>), reimplemented inline so you can poke the knobs
+      and see the returned <code>action</code> / classification.</p>
+
+    <div class="panel widget">
+      <h3 style="margin-top:0">1 · Classification</h3>
+      <div class="widget-grid">
+        <div><label class="l">distance between fixes (m)</label><input type="number" id="cDist" value="50" min="0"></div>
+        <div><label class="l">time between fixes (s)</label><input type="number" id="cTime" value="60" min="1"></div>
+        <div><label class="l">threshold (m/s)</label><input type="number" id="cThresh" value="2" min="0" step="0.5"></div>
+      </div>
+      <div class="readout">
+        <div class="cell"><b id="cSpeed">0.83 m/s</b><span>computed speed</span></div>
+        <div class="cell"><b id="cClass">—</b><span>classification</span></div>
+      </div>
+    </div>
+
+    <div class="panel widget">
+      <h3 style="margin-top:0">2 · Dedupe decision</h3>
+      <div class="widget-grid">
+        <div><label class="l">distance to nearest existing row (m)</label><input type="number" id="dDist" value="40" min="0"></div>
+        <div><label class="l">dedupe_radius (m)</label><input type="number" id="dRadius" value="100" min="0"></div>
+      </div>
+      <div class="readout">
+        <div class="cell"><b id="dAction">—</b><span>action returned</span></div>
+      </div>
+      <p class="muted" style="margin-bottom:0">Refresh opponent: same <code>first_seen</code> sticks;
+        a new timestamp within radius refreshes; different timestamp beyond radius appends.</p>
+    </div>
+
+    <div class="panel widget">
+      <h3 style="margin-top:0">3 · Decay over a week</h3>
+      <div class="widget-grid">
+        <div><label class="l">days since visit</label><input type="number" id="dgDays" value="7" min="0"></div>
+        <div><label class="l">decay_rate /day</label><input type="number" id="dgRate" value="0.1" min="0" max="1" step="0.01"></div>
+      </div>
+      <div class="readout">
+        <div class="cell"><b id="dgOut">0.478</b><span>opacity left</span></div>
+        <div class="cell"><b id="dgPct">47.8%</b><span>…as a percentage</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="files">
+    <h2><span class="tag">17</span>Files index</h2>
+    <div class="grid">
+      <div class="chip" onclick="scrollToFile('__init__.py')"><div class="t">__init__.py</div><div class="d">Runtime, event subscription, debounced save, reload/unload</div></div>
+      <div class="chip" onclick="scrollToFile('logic.py')"><div class="t">logic.py</div><div class="d">Pure domain: haversine, speed, classify, add_fix, decay, prune</div></div>
+      <div class="chip" onclick="scrollToFile('store.py')"><div class="t">store.py</div><div class="d">JSON persistence, atomic writes, query, purge</div></div>
+      <div class="chip" onclick="scrollToFile('websocket.py')"><div class="t">websocket.py</div><div class="d">visit_heatmap/points command handler</div></div>
+      <div class="chip" onclick="scrollToFile('backfill.py')"><div class="t">backfill.py</div><div class="d">Recorder history import on first install</div></div>
+      <div class="chip" onclick="scrollToFile('config_flow.py')"><div class="t">config_flow.py</div><div class="d">Install + options forms (4 knobs)</div></div>
+      <div class="chip" onclick="scrollToFile('card.js')"><div class="t">www_src/…card.js</div><div class="d">VisitHeatmapCard + editor, lit bundle source</div></div>
+      <div class="chip" onclick="scrollToFile('manifest.json')"><div class="t">manifest.json</div><div class="d">Domain wiring: deps, config_flow, HACS metadata</div></div>
+    </div>
+    <details class="codewrap">
+      <summary>▸ dependency map</summary>
+      <pre class="codebox" data-snippet="s-deps"></pre>
+    </details>
+  </section>
+
+  <section id="testing">
+    <h2><span class="tag">18</span>Testing &amp; CI</h2>
+    <div class="grid">
+      <div class="chip"><div class="t">pytest — 19 tests</div><div class="d">Pure <code>logic.py</code>/<code>store.py</code> unit tests; the whole <code>homeassistant</code> layer is only in the live HA run. Runs in CI after ruff.</div></div>
+      <div class="chip"><div class="t">ruff</div><div class="d">Python lint gate (<code>custom_components/visit_heatmap</code>).</div></div>
+      <div class="chip"><div class="t">esbuild → www/…card.js</div><div class="d">Builds the bundled, minified card the card resource loads; then <code>node --check</code> validates the emitted bundle.</div></div>
+    </div>
+    <div class="panel">
+      <p>Why no <code>tsc</code>? The card is deliberately plain JS (the card is ES classes
+        built with esbuild). CI "type-check" is therefore the build + a syntax check of the
+        emitted file — documented against ticket 08. There is no browser test harness for the
+        card; verify by eye on a live instance.</p>
+    </div>
+  </section>
+
+  <section id="glossary">
+    <h2><span class="tag">19</span>Glossary</h2>
+    <table>
+      <tr><th>Term</th><th>Meaning</th></tr>
+      <tr><td class="mono">fix</td><td>A single GPS observation with device, lat/lon, timestamp.</td></tr>
+      <tr><td class="mono">row</td><td>A deduplicated place in the store: one dot on the map.</td></tr>
+      <tr><td class="mono">stationary</td><td>A fix that is not classified "moving" — a stay place.</td></tr>
+      <tr><td class="mono">moving</td><td>A fix whose speed/delta ≥ threshold; rendered small + joined into journeys.</td></tr>
+      <tr><td class="mono">first_seen / last_seen</td><td>Row bookends; first_seen only set once, last_seen advances on refresh.</td></tr>
+      <tr><td class="mono">dedupe_radius</td><td>When a new fix lands within this distance, refresh the row.</td></tr>
+      <tr><td class="mono">decay_rate / horizon</td><td>Card knobs: %-per-day fade factor, and the age after which a visit disappears.</td></tr>
+      <tr><td class="mono">retention_days</td><td>Server-side pruning age; capacity bound, not cosmetic.</td></tr>
+      <tr><td class="mono">max_gap</td><td>Longest time between two moving fixes that can be connected by a journey.</td></tr>
+    </table>
+  </section>
+
+  <section id="adr">
+    <h2><span class="tag">20</span>Design decisions (ADRs)</h2>
+    <table>
+      <tr><th>#</th><th>Decision</th><th>File</th></tr>
+      <tr><td>0001</td><td>New card + companion integration, not a GoogleFindMy-HA fork</td><td class="mono">adr/0001</td></tr>
+      <tr><td>0002</td><td>Deduped raw fixes; moving recorded separately by speed</td><td class="mono">adr/0002</td></tr>
+      <tr><td>0003</td><td>Continuous client-side decay; card owns decay_rate + horizon</td><td class="mono">adr/0003</td></tr>
+      <tr><td>0004</td><td>Thin hui-map clone reusing stock ha-map + injected layers</td><td class="mono">adr/0004</td></tr>
+      <tr><td>0005</td><td>JSON store + WS command; card fetches on load/change/periodic</td><td class="mono">adr/0005</td></tr>
+      <tr><td>0006</td><td>Single HACS repo, integration + card together</td><td class="mono">adr/0006</td></tr>
+      <tr><td>0007</td><td>Backfill imports recorder history on first install</td><td class="mono">adr/0007</td></tr>
+    </table>
+  </section>
+
+  <footer>Interactive walkthrough of the <code>ha-visit-heatmap</code> repo. The flow
+    diagrams, the decay curve and the playground are driven by the same formulas the
+    code uses — poke a slider and watch the pipeline react.</footer>
+</main>
+
+<!-- ══════════════════════════ code snippets ══════════════════════════ -->
+<script type="text/plain" id="s-runtime">
+class VisitHeatmapRuntime:
+    """Owns the store, the event listener, and the save debounce."""
+
+    def __init__(self, hass, options):
+        self.hass = hass
+        self.options = options
+        self.store = VisitStore(Path(hass.config.config_dir) / STORE_FILE)
+        self._unsub_listener = None
+        self._save_task = None
+        self._backfill_task = None
+        self._flush_lock = asyncio.Lock()
+
+    async def start(self):
+        self.store.rebuild_last_fixes()
+        if not self.store.rows:
+            self._backfill_task = self.hass.async_create_background_task(
+                self._backfill(), "visit_heatmap backfill"
+            )
+        self._unsub_listener = self.hass.bus.async_listen(
+            EVENT_STATE_CHANGED, self._on_state_changed
+        )
+        await self._flush()
+
+    async def stop(self):
+        if self._unsub_listener:
+            self._unsub_listener()
+        for task in (self._save_task, self._backfill_task):
+            if task and not task.done():
+                task.cancel()
+        await self._flush()
+
+    async def _flush(self):
+        async with self._flush_lock:
+            self.store.purge(self.retention_days, utc_now())
+            await self.hass.async_add_executor_job(self.store.save)
+</script>
+
+<script type="text/plain" id="s-setup">
+async def async_setup(hass, config):
+    """Register the WebSocket command ONCE per domain lifetime.
+    (Reload of the entry must not double-register.)"""
+    await async_register_websocket(hass)
+    return True
+
+
+async def async_setup_entry(hass, entry):
+    runtime = VisitHeatmapRuntime(hass, entry.options)
+    hass.data[DOMAIN] = runtime
+    await runtime.start()
+    await _register_frontend(hass)         # serves /visit_heatmap/* + card JS URL
+    entry.add_update_listener(async_reload_entry)
+    return True
+
+
+async def async_reload_entry(hass, entry):
+    await async_unload_entry(hass, entry)
+    await async_setup_entry(hass, entry)
+</script>
+
+<script type="text/plain" id="s-capture">
+def _on_state_changed(self, event):
+    state = event.data.get("new_state")
+    if state is None or not state.entity_id.startswith("device_tracker."):
+        return
+    lat = state.attributes.get("latitude")
+    lon = state.attributes.get("longitude")
+    if lat is None or lon is None:
+        return
+    action = self.store.add_fix(
+        state.entity_id, lat, lon,
+        state.last_updated,
+        self.dedupe_radius, self.speed_threshold,
+    )
+    if action in ("added", "refreshed"):
+        self._schedule_save()
+
+def _schedule_save(self):
+    if self._save_task and not self._save_task.done():
+        self._save_task.cancel()          # collapse bursts
+    self._save_task = self.hass.async_create_background_task(
+        self._debounced_save(), "visit_heatmap save"
+    )
+
+async def _debounced_save(self):
+    await asyncio.sleep(2)
+    await self._flush()
+</script>
+
+<script type="text/plain" id="s-classify">
+def haversine_m(lat1, lon1, lat2, lon2):
+    """Great-circle distance in meters."""
+    ...
+
+def speed_between(prev, current):
+    """Speed in m/s, or None when no time delta."""
+    delta_s = (current.timestamp - prev.timestamp).total_seconds()
+    if delta_s <= 0:
+        return None
+    return haversine_m(prev.lat, prev.lon, current.lat, current.lon) / delta_s
+
+def classify_moving(speed, threshold):
+    """True while moving; first fixes (no speed) are stationary."""
+    if speed is None:
+        return False
+    return speed >= threshold
+</script>
+
+<script type="text/plain" id="s-addfix">
+def add_fix(rows, fix, dedupe_radius, moving):
+    """Dedupe/refresh entry: returns (new_rows, action)."""
+    for row in rows:
+        if row["device"] != fix.device:
+            continue
+        if haversine_m(row["lat"], row["lon"], fix.lat, fix.lon) > dedupe_radius:
+            continue
+        if row["last_seen"] == fix.timestamp:
+            return rows, "duplicate"        # exact replay: no-op
+
+        # within radius → refresh the stay; first_seen never changes
+        row["last_seen"] = fix.timestamp
+        row["moving"] = moving
+        return rows, "refreshed"
+
+    rows.append({
+        "device":     fix.device,
+        "lat":        fix.lat,
+        "lon":        fix.lon,
+        "first_seen": fix.timestamp,
+        "last_seen":  fix.timestamp,
+        "moving":     moving,
+    })
+    return rows, "added"
+</script>
+
+<script type="text/plain" id="s-store">
+def save(self):
+    payload = {"version": STORE_VERSION, "rows": [
+        {"device": r["device"], "lat": r["lat"], "lon": r["lon"],
+         "first_seen": _to_iso(r["first_seen"]),
+         "last_seen":  _to_iso(r["last_seen"]),
+         "moving":     r["moving"]}
+        for r in self.rows
+    ]}
+    self._path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(self._path.parent), prefix=".visit.")
+    with os.fdopen(fd, "w") as fh:
+        json.dump(payload, fh, indent=2)
+    os.replace(tmp, self._path)             # atomic swap-­‐in
+
+def query(self, entity_ids=None):
+    rows = self.rows
+    if entity_ids:
+        wanted = set(entity_ids)
+        rows = [r for r in rows if r["device"] in wanted]
+    return [
+        {"device": r["device"], "lat": r["lat"], "lon": r["lon"],
+         "first_seen": _to_iso(r["first_seen"]),
+         "last_seen": _to_iso(r["last_seen"]),
+         "moving": r["moving"]}
+        for r in rows
+    ]
+</script>
+
+<script type="text/plain" id="s-backfill">
+async def async_backfill(hass, store, backfill_days, dedupe_radius, speed_threshold):
+    if not backfill_days or "history" not in (hass.config.components or []):
+        return 0
+    from homeassistant.components import history
+
+    states_map = await history.state_changes_during_period(
+        hass, start=dt_util.utcnow() - timedelta(days=backfill_days),
+        end=dt_util.utcnow(), include_start_time_state=True)
+
+    count = 0
+    for entity_id, state_list in states_map.items():
+        if not entity_id.startswith("device_tracker."):
+            continue
+        for state in state_list:
+            lat, lon = state.attributes.get("latitude"), state.attributes.get("longitude")
+            if lat is None or lon is None:
+                continue
+            action = store.add_fix(entity_id, lat, lon, state.last_updated,
+                                   dedupe_radius, speed_threshold)
+            if action in ("added", "refreshed"):
+                count += 1          # duplicates not counted
+    return count
+</script>
+
+<script type="text/plain" id="s-ws">
+@websocket_api.websocket_command({
+    websocket_api.const.TYPE: WS_POINTS,
+    websocket_api.const.ATTR_ID: websocket_api.const.ID_REGEX,
+    websocket_api.vol.Optional("entities", default=[]): [str],
+})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def handle_points(hass, connection, msg):
+    runtime = hass.data.get(DOMAIN)
+    rows = runtime.store.query(msg.get("entities")) if runtime else []
+    connection.send_result(msg["id"], {"rows": rows})   # retention-filtered only
+</script>
+
+<script type="text/plain" id="s-config">
+class VisitHeatmapConfigFlow(ConfigFlow, domain=DOMAIN):
+    async def async_step_user(self, user_input=None):
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+        return self.async_create_entry(title=DOMAIN_NAME, data={})
+
+class VisitHeatmapOptionsFlow(OptionsFlow):
+    async def async_step_init(self, user_input=None):
+        options = {**self._entry.options, **(user_input or {})}
+        if user_input is not None:
+            return self.async_create_entry(title="", data=options)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required("dedupe_radius", default=options.get("dedupe_radius", 100)): cv.positive_int,
+                vol.Required("move_speed_threshold", default=options.get("move_speed_threshold", 2.0)): cv.positive_float,
+                vol.Required("retention_days", default=options.get("retention_days", 90)): cv.positive_int,
+                vol.Required("backfill_days", default=options.get("backfill_days", 10)): cv.positive_int,
+            }),
+        )
+</script>
+
+<script type="text/plain" id="s-cardlife">
+connectedCallback() {
+  super.connectedCallback();
+  this._fetchAll();
+  this._timer = setInterval(() => this._fetchAll(), REFRESH_PERIOD_MS);      // 5 min
+  document.addEventListener("visibilitychange", this._onVisibility);
+}
+
+disconnectedCallback() {
+  super.disconnectedCallback();
+  clearInterval(this._timer);
+  clearTimeout(this._refetchTimer);
+  clearTimeout(this._verifyTimer);
+  document.removeEventListener("visibilitychange", this._onVisibility);
+  this._unsubscribeHistory();
+}
+
+willUpdate(changedProps) {
+  if (changedProps.has("hass") && this.hass) {
+    const old = changedProps.get("hass");
+    if (!old || old.connection !== this.hass.connection) {
+      this._fetchAll();                                   // new WS connection
+    }
+    if (this._config.show_all) this._configEntities = this._parseEntities(this._config);
+    this._updateMapEntities();
+    const sig = this._entities.map(e =>
+      `${e}:${this.hass.states?.[e]?.last_updated || ""}`).join("|");
+    if (sig !== this._stateSig) {                         // a tracker moved
+      this._stateSig = sig;
+      this._scheduleRefetch();
+    }
+  }
+}
+</script>
+
+<script type="text/plain" id="s-layers">
+_buildLayers() {
+  const layers = [];
+  const showMoving = this._config.show_moving !== false;
+  const maxGapMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
+  const movingByDevice = {};
+
+  for (const row of this._rows) {
+    if (!this._withinHorizon(row)) continue;                     // card horizon
+    if (this._config.exclude_zones && this._zoneNameFor(row.lat, row.lon)) continue;
+
+    const color = this._color(row.device);
+    if (row.moving) { (movingByDevice[row.device] ||= []).push(row); continue; }
+
+    const opacity = this._opacity(row);                          // decay model
+    const marker = L.circleMarker([row.lat, row.lon], {
+      radius: 6, color, weight: 2, fillColor: color,
+      fillOpacity: opacity, opacity,
+    });
+    marker.bindTooltip(this._tooltip(row), { direction: "top" });
+    layers.push(marker);
+  }
+
+  if (showMoving) {
+    for (const device of Object.keys(movingByDevice)) {
+      const pts = movingByDevice[device].sort((a, b) =>
+        Date.parse(a.last_seen) - Date.parse(b.last_seen));
+      const color = this._color(device);
+      for (const p of pts) { /* small dashed moving markers */ }
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        if (Date.parse(b.last_seen) - Date.parse(a.last_seen) > maxGapMs) continue;
+        if (this._hasStationaryBetween(device, a, b)) continue;
+        const segOpacity = Math.max(this._opacity(a), this._opacity(b));  // → recent endpoint
+        if (segOpacity <= 0) continue;
+        layers.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], {
+          color, weight: 2, opacity: segOpacity, dashArray: "4 6", interactive: false }));
+      }
+    }
+  }
+  this._layers = layers;
+  this._verifyLayersInjected();   // warn if ha-map dropped any layer
+}
+</script>
+
+<script type="text/plain" id="s-journey">
+_hasStationaryBetween(device, a, b) {
+  const aT = Date.parse(a.last_seen), bT = Date.parse(b.last_seen);
+  return this._rows.some(r =>
+    r.device === device && !r.moving &&
+    Date.parse(r.last_seen) > aT && Date.parse(r.last_seen) < bT);
+}
+
+// a segment keeps the opacity of its MORE-RECENT endpoint (b is later here)
+const segOpacity = Math.max(this._opacity(a), this._opacity(b));
+</script>
+
+<script type="text/plain" id="s-opacity">
+_opacity(row) {
+  const rate = this._config.decay_rate ?? DECAY_RATE_DEFAULT;   // 0.1 default
+  const ageDays = (Date.now() - Date.parse(row.last_seen)) / 86400e3;
+  return Math.max(0, Math.pow(1 - rate, ageDays));
+}
+
+_withinHorizon(row) {
+  const horizonDays = this._config.horizon ?? HORIZON_DEFAULT;  // 30 default
+  const ageDays = (Date.now() - Date.parse(row.last_seen)) / 86400e3;
+  return ageDays <= horizonDays;
+}
+</script>
+
+<script type="text/plain" id="s-deps">
+custom_components/visit_heatmap/
+├── __init__.py        # runtime, event listener, debounced save, reload/unload
+├── const.py           # DOMAIN, defaults, STORE_FILE, WS_POINTS
+├── logic.py           # pure: haversine / speed / classify / add_fix / decay / prune
+├── store.py           # JSON store: load/save/query/purge/rebuild_last_fixes
+├── backfill.py        # async_backfill: recorder history → add_fix
+├── config_flow.py     # install + options forms (4 knobs)
+├── websocket.py       # visit_heatmap/points command handler
+├── manifest.json      # HA + HACS metadata
+├── www/               # built card bundle (served)
+└── www_src/visit-heatmap-card.js   # card source (esbuild → www/)
+    └── includes the visit-heatmap-card-editor + customCards registration
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── syntax highlighter (tiny, char-scanner) ──────────────────────────── */
+  var JS_KW = /^(const|let|var|function|return|if|else|for|while|do|of|in|new|class|extends|import|export|static|async|await|this|super|typeof|instanceof|yield|switch|case|default|break|continue|true|false|null|undefined)$/;
+  var PY_KW = /^(def|class|return|if|elif|else|for|while|import|from|as|async|await|and|or|not|in|is|None|True|False|raise|try|except|finally|with|pass|break|continue|global|nonlocal|lambda)$/;
+
+  function esc(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function codeRun(text, kw) {
+    return text.split(/(\b[A-Za-z_][A-Za-z0-9_]*\b|\b\d+(?:\.\d+)?\b)/g)
+      .map(function (tok) {
+        if (!tok) return "";
+        if (/^\d/.test(tok)) return '<span class="tok-n">' + tok + "</span>";
+        if (kw.test(tok)) return '<span class="tok-k">' + tok + "</span>";
+        return tok;
+      }).join("");
+  }
+
+  function highlight(src, lang) {
+    var out = "", i = 0, n = src.length;
+    var kw = lang === "js" ? JS_KW : PY_KW;
+    var codeBuf = "";
+    function flush() { if (codeBuf) { out += codeRun(codeBuf, kw); codeBuf = ""; } }
+    while (i < n) {
+      var c = src[i], nxt = src[i + 1];
+      if ((lang === "py" && c === "#") || (lang === "js" && c === "/" && nxt === "/")) {
+        flush();
+        var end = src.indexOf("\n", i); if (end < 0) end = n;
+        out += '<span class="tok-c">' + esc(src.slice(i, end)) + "</span>";
+        i = end; continue;
+      }
+      if (lang === "js" && c === "/" && nxt === "*") {
+        flush();
+        var e2 = src.indexOf("*/", i + 2); if (e2 < 0) e2 = n - 2; e2 += 2;
+        out += '<span class="tok-c">' + esc(src.slice(i, e2)) + "</span>";
+        i = e2; continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        var q = c;
+        if (lang === "py" && q === '"' && src.slice(i, i + 3) === '"""') {
+          flush();
+          var e3 = src.indexOf('"""', i + 3); if (e3 < 0) e3 = n - 3; e3 += 3;
+          out += '<span class="tok-s">' + esc(src.slice(i, e3)) + "</span>";
+          i = e3; continue;
+        }
+        flush();
+        var j = i + 1;
+        while (j < n) {
+          if (src[j] === "\\") { j += 2; continue; }
+          if (src[j] === q) break;
+          if (q === "`" && src[j] === "$" && src[j + 1] === "{") {
+            var close = src.indexOf("}", j + 2);
+            if (close < 0) { j = n; break; }
+            j = close + 1;
+            continue;
+          }
+          j++;
+        }
+        if (j >= n) j = n - 1;
+        out += '<span class="tok-s">' + esc(src.slice(i, j + 1)) + "</span>";
+        i = j + 1; continue;
+      }
+      codeBuf += c;
+      i++;
+    }
+    flush();
+    return out;
+  }
+
+  /* ── snippet injection ────────────────────────────────────────────────── */
+  var LANG = {
+    "s-runtime": "py", "s-setup": "py", "s-capture": "py", "s-classify": "py",
+    "s-addfix": "py", "s-store": "py", "s-backfill": "py", "s-ws": "py",
+    "s-config": "py", "s-cardlife": "js", "s-layers": "js", "s-journey": "js",
+    "s-opacity": "js", "s-deps": "text"
+  };
+
+  function injectSnippets() {
+    document.querySelectorAll("pre[data-snippet]").forEach(function (pre) {
+      var id = pre.getAttribute("data-snippet");
+      var raw = document.getElementById(id);
+      if (!raw) { pre.textContent = "<!-- missing snippet: " + id + " -->"; return; }
+      var lang = LANG[id] || "py";
+      var src = raw.textContent.replace(/^\n+/, "").replace(/\s+$/, "");
+      var html = src.split("\n").map(function (line, idx) {
+        var body = lang === "text" ? esc(line) : highlight(line, lang);
+        return '<span class="ln">' + (idx + 1) + "</span>" + body + "\n";
+      }).join("");
+      pre.innerHTML = html;
+    });
+  }
+
+  /* ── flow diagrams ────────────────────────────────────────────────────── */
+  var FLOWS = {
+    "flow-overview": [
+      { t: "Capture", s: "device_tracker state changes", env: "core" },
+      { t: "Record", s: "classify + dedupe → JSON file", env: "integration" },
+      { t: "Read", s: "visit_heatmap/points (WebSocket)", env: "integration" },
+      { t: "Paint", s: "layers injected into ha-map", env: "card" }
+    ],
+    "flow-pipeline": [
+      { t: "1 · Tracker updates", s: "device_tracker.phone gets a new state", env: "core" },
+      { t: "2 · STATE_CHANGED", s: "event bus dispatch", env: "core/bus" },
+      { t: "3 · filter + classify", s: "_on_state_changed → speed → moving?", env: "__init__.py" },
+      { t: "4 · add_fix", s: "dedupe (refresh) or append", env: "logic.py" },
+      { t: "5 · debounced save", s: "atomic temp-file + os.replace", env: "store.py" },
+      { t: "6 · WS read", s: "store.query for requested entities", env: "websocket.py" },
+      { t: "7 · build + paint", s: "_buildLayers → .layers → ha-map", env: "card.js" }
+    ],
+    "flow-classify": [
+      { t: "prev fix + new fix", s: "per device, from _last_fix", env: "logic.py" },
+      { t: "speed_between", s: "distance ÷ time → m/s", env: "logic.py" },
+      { t: "classify_moving", s: "speed ≥ threshold?", env: "logic.py" }
+    ],
+    "flow-dedupe": [
+      { t: "added", s: "no row within radius → new dot", env: "logic.py" },
+      { t: "refreshed", s: "row within radius → last_seen advances", env: "logic.py" },
+      { t: "duplicate", s: "identical timestamp → no-op", env: "logic.py" }
+    ],
+    "flow-cardlife": [
+      { t: "connectedCallback", s: "first fetch + 5 min interval", env: "card.js" },
+      { t: "willUpdate(hass)", s: "state-change signature → refetch", env: "card.js" },
+      { t: "setConfig", s: "validate + normalize entities", env: "card.js" },
+      { t: "disconnectedCallback", s: "clear timers + unsubscribe", env: "card.js" }
+    ],
+    "flow-render": [
+      { t: "_buildLayers", s: "stationary dots + moving markers", env: "card.js" },
+      { t: "zones & tooltips", s: "exclude_zones, hover info", env: "card.js" },
+      { t: "inject into ha-map", s: ".layers + hasLayer guard", env: "card.js" },
+      { t: "trails", s: "hours_to_show history stream", env: "card.js" }
+    ]
+  };
+
+  function wireFlows() {
+    Object.keys(FLOWS).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var fp = el.parentNode.querySelector(".fp");
+      var steps = fp ? fp.querySelectorAll(".fstep") : [];
+      var nodes = FLOWS[id];
+      el.innerHTML = "";
+      nodes.forEach(function (node, i) {
+        var nd = document.createElement("div");
+        nd.className = "fnode";
+        nd.innerHTML = "<span class=\"t\">" + node.t + "</span>" +
+          (node.s ? "<span class=\"s\">" + node.s + "</span>" : "") +
+          (node.env ? "<span class=\"env\">" + node.env + "</span>" : "");
+        nd.addEventListener("click", function () {
+          el.querySelectorAll(".fnode").forEach(function (n, j) {
+            n.classList.toggle("active", j === i);
+          });
+          steps.forEach(function (s, j) {
+            s.classList.toggle("active", j === Math.min(i, steps.length - 1));
+          });
+        });
+        el.appendChild(nd);
+        if (i < nodes.length - 1) {
+          var ar = document.createElement("span");
+          ar.className = "farrow";
+          ar.textContent = "→";
+          el.appendChild(ar);
+        }
+      });
+      if (steps.length) steps[0].classList.add("active");
+    });
+  }
+
+  /* ── decay curve ──────────────────────────────────────────────────────── */
+  var rateSlider = document.getElementById("rate");
+  var horizonSlider = document.getElementById("horizon");
+  var curve = document.getElementById("curve");
+  var hoverDay = null;
+
+  function drawCurve() {
+    var rate = +rateSlider.value / 100;
+    var horizon = +horizonSlider.value;
+    var ctx = curve.getContext("2d");
+    var W = curve.width, H = curve.height;
+    var padL = 48, padR = 16, padT = 14, padB = 28;
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = "11px ui-monospace, monospace";
+
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    var pts = [], N = 200, k;
+    for (k = 0; k <= N; k++) {
+      var d = horizon * k / N;
+      var o = Math.pow(1 - rate, d);
+      pts.push([padL + plotW * (d / horizon), padT + plotH * (1 - o)]);
+    }
+
+    ctx.strokeStyle = "rgba(127,140,160,.25)";
+    ctx.fillStyle = "#8b93a6";
+    for (var g = 0; g <= 4; g++) {
+      var gy = padT + plotH * g / 4;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(W - padR, gy); ctx.stroke();
+      ctx.fillText(String(Math.round((1 - g / 4) * 100)) + "%", 8, gy + 4);
+    }
+    for (var gx = 0; gx <= 4; gx++) {
+      var x = padL + plotW * gx / 4;
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H - padB); ctx.stroke();
+      ctx.fillText(String(Math.round(horizon * gx / 4)) + "d", x - 10, H - 8);
+    }
+    ctx.fillStyle = "#8b93a6";
+    ctx.fillText("decay_rate " + (rate * 100).toFixed(1) + "%/day · horizon " + horizon + "d", padL, 12);
+
+    ctx.beginPath();
+    ctx.moveTo(padL, padT + plotH);
+    pts.forEach(function (p) { ctx.lineTo(p[0], p[1]); });
+    ctx.lineTo(padL + plotW, padT + plotH);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(25,118,210,.22)";
+    ctx.fill();
+
+    ctx.beginPath();
+    pts.forEach(function (p, idx) { if (idx) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); });
+    ctx.strokeStyle = "#1976d2";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    var endY = padT + plotH * (1 - Math.pow(1 - rate, horizon));
+    ctx.beginPath(); ctx.arc(padL + plotW, endY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#f9a825"; ctx.fill();
+
+    if (hoverDay != null) {
+      var hx = padL + plotW * (hoverDay / horizon);
+      var ho = Math.pow(1 - rate, hoverDay);
+      var hy = padT + plotH * (1 - ho);
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.beginPath(); ctx.moveTo(hx, padT); ctx.lineTo(hx, H - padB); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(padL, hy); ctx.lineTo(W - padR, hy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(hx, hy, 5, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+      ctx.fillStyle = "#e8ecf3";
+      ctx.fillText("day " + hoverDay.toFixed(1) + " → opacity " + ho.toFixed(3), hx + 8, Math.max(padT + 12, hy - 8));
+    }
+
+    document.getElementById("oNow").textContent = "1.000";
+    document.getElementById("oHorizon").textContent = Math.pow(1 - rate, horizon).toFixed(3);
+    var half = Math.log(0.5) / Math.log(1 - rate);
+    document.getElementById("half").textContent = (isFinite(half) && half > 0 ? half.toFixed(1) : "∞") + " d";
+    document.getElementById("zero").textContent = horizon + " d";
+  }
+
+  function decayCurveInit() {
+    if (!rateSlider || !curve) return;
+    rateSlider.addEventListener("input", function () {
+      document.getElementById("rateVal").textContent = (+rateSlider.value).toFixed(0) + "%";
+      drawCurve();
+    });
+    horizonSlider.addEventListener("input", function () {
+      document.getElementById("horizonVal").textContent = horizonSlider.value;
+      drawCurve();
+    });
+    curve.addEventListener("mousemove", function (ev) {
+      var r = curve.getBoundingClientRect();
+      var x = (ev.clientX - r.left) * (curve.width / r.width);
+      var d = (x - 48) / (curve.width - 48 - 16) * (+horizonSlider.value);
+      hoverDay = Math.max(0, Math.min(+horizonSlider.value, d));
+      drawCurve();
+    });
+    curve.addEventListener("mouseleave", function () { hoverDay = null; drawCurve(); });
+    drawCurve();
+  }
+
+  /* ── playground ───────────────────────────────────────────────────────── */
+  function num(id) { var v = parseFloat(document.getElementById(id).value); return isFinite(v) ? v : 0; }
+
+  function wirePlayground() {
+    function classify() {
+      var dist = num("cDist"), time = Math.max(num("cTime"), 0.0001), thresh = num("cThresh");
+      var speed = dist / time;
+      var moving = speed >= thresh;
+      document.getElementById("cSpeed").textContent = speed.toFixed(2) + " m/s";
+      var c = document.getElementById("cClass");
+      c.textContent = moving ? "MOVING" : "stationary";
+      c.className = "pill " + (moving ? "mov" : "sta");
+    }
+    function dedupe() {
+      var dist = num("dDist"), radius = num("dRadius");
+      var a = document.getElementById("dAction");
+      if (dist <= radius) { a.textContent = "refreshed"; a.className = "pill ref"; }
+      else { a.textContent = "added"; a.className = "pill add"; }
+    }
+    function decay() {
+      var days = Math.max(num("dgDays"), 0), rate = Math.max(0, Math.min(num("dgRate"), 1));
+      var o = Math.pow(1 - rate, days);
+      document.getElementById("dgOut").textContent = o.toFixed(3);
+      document.getElementById("dgPct").textContent = (o * 100).toFixed(1) + "%";
+    }
+    ["cDist", "cTime", "cThresh"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", classify);
+    });
+    ["dDist", "dRadius"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", dedupe);
+    });
+    ["dgDays", "dgRate"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", decay);
+    });
+    classify(); dedupe(); decay();
+  }
+
+  /* ── nav scrollspy + helpers ──────────────────────────────────────────── */
+  window.scrollToId = function (id) {
+    var el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  window.scrollToFile = function (name) { window.scrollToId("files"); };
+
+  function wireScrollspy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll("#nav a"));
+    var map = {};
+    links.forEach(function (a) {
+      var sec = document.getElementById(a.getAttribute("href").replace("#", ""));
+      if (sec) map[sec] = a;
+    });
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove("active"); });
+          var link = map[en.target];
+          if (link) link.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-40px 0px -60% 0px" });
+    Object.keys(map).forEach(function (sec) { obs.observe(sec); });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    injectSnippets();
+    wireFlows();
+    decayCurveInit();
+    wirePlayground();
+    wireScrollspy();
+  });
+})();
+</script>
+</body>
+</html>

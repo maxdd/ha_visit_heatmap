@@ -77,6 +77,10 @@ Via **Devices & Services → Visit Heatmap → Options**:
 
 ## Development
 
+An [interactive wiki](docs/interactive-wiki.html) (open in a browser) walks the
+data flow, the classification/dedupe decisions, and the card's render pipeline
+with clickable diagrams, the decay curve, and a logic playground.
+
 ```bash
 npm install
 npm run build       # builds the card bundle into custom_components/visit_heatmap/www/
