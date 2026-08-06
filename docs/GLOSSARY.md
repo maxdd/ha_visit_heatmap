@@ -43,3 +43,5 @@ Defaults that live in the **card** config (visual, computed client-side):
 | `max_gap` | 30 | minutes |
 | `show_moving` | true | on/off |
 | `exclude_zones` | false | on/off |
+| `show_all` | false | on/off |
+| `hours_to_show` | 0 | hours (0 = stock trails layer off) |
