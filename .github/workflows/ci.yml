@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python deps
+        run: |
+          pip install ruff pytest
+      - name: Lint
+        run: ruff check custom_components/visit_heatmap --exclude custom_components/visit_heatmap/www
+      - name: Test
+        run: pytest
+
+  card:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        run: npm ci
+      - name: Build card
+        run: npm run build
+      - name: Verify bundle
+        run: node --check custom_components/visit_heatmap/www/visit-heatmap-card.js

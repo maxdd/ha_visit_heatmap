@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["custom_components/visit_heatmap/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

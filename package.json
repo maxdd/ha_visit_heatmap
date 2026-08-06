@@ -1,0 +1,14 @@
+{
+  "name": "ha-visit-heatmap",
+  "version": "0.1.0",
+  "description": "Visit Heatmap — a fading visit-history layer for the Home Assistant map",
+  "private": true,
+  "scripts": {
+    "build": "esbuild custom_components/visit_heatmap/www_src/visit-heatmap-card.js --bundle --format=iife --minify --outfile=custom_components/visit_heatmap/www/visit-heatmap-card.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "leaflet": "^1.9.4",
+    "lit": "^3.3.3"
+  }
+}

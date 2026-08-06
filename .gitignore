@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+
+# HA store data
+visit-heatmap.json
+
+# Editors
+.idea/
+.vscode/
