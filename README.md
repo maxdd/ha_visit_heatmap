@@ -124,8 +124,14 @@ in it; otherwise copy the `visit_heatmap` folder in instead.
 
 ## Releasing
 
-Releases are published as GitHub releases with a `visit-heatmap.zip` asset
-(`zip_release` mode in `hacs.json`). Before tagging, verify:
+Releases are automated by `.github/workflows/release.yml`: every push to `main`
+builds the card, packages `custom_components/visit_heatmap` as `visit-heatmap.zip`,
+and publishes a GitHub release tagged with the short commit SHA — the asset HACS
+downloads in `zip_release` mode (`hacs.json`).
+
+Optionally, tag `vX.Y.Z` matching the `manifest.json` version so HACS shows a
+human-readable version selector alongside the per-commit releases. Before tagging
+a version, verify:
 
 1. Bump `version` in `custom_components/visit_heatmap/manifest.json` (and
    optionally `package.json`).
@@ -133,6 +139,4 @@ Releases are published as GitHub releases with a `visit-heatmap.zip` asset
    `custom_components/visit_heatmap/www/visit-heatmap-card.js`.
 3. `python -m pytest` and `ruff check custom_components/visit_heatmap` both pass.
 4. `node --check custom_components/visit_heatmap/www/visit-heatmap-card.js` passes.
-5. Tag `vX.Y.Z` matching the manifest version.
-6. Create a GitHub release for the tag and attach the built
-   `visit-heatmap-card.js` renamed to `visit-heatmap.zip`.
+5. Tag `vX.Y.Z` and push the tag (the workflow uploads the asset for it too).

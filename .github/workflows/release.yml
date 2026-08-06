@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Build card
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package integration
+        run: |
+          cd custom_components/visit_heatmap
+          zip -r ../../visit-heatmap.zip . -x "./www_src/*" "./tests/*"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          files: visit-heatmap.zip
+          body: |
+            Automated release for `${{ github.ref_name }}`.
+            HACS fetches the `visit-heatmap.zip` asset from the release tagged
+            with the short commit SHA (or version tag).
+          fail_on_unmatched_files: true
