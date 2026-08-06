@@ -32,6 +32,8 @@ jobs:
           node-version: "20"
       - name: Install
         run: npm ci
+      - name: Test card logic
+        run: node --test custom_components/visit_heatmap/www_src/logic.test.mjs
       - name: Build card
         run: npm run build
       - name: Verify bundle

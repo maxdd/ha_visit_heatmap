@@ -88,6 +88,7 @@ with clickable diagrams, the decay curve, and a logic playground.
 ```bash
 npm install
 npm run build       # builds the card bundle into custom_components/visit_heatmap/www/
+node --test custom_components/visit_heatmap/www_src/logic.test.mjs  # card logic tests
 python -m pytest     # unit tests for the integration's pure logic
 ruff check custom_components/visit_heatmap
 ```

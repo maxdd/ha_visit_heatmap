@@ -1,5 +1,12 @@
 import { LitElement, html, css, nothing } from "lit";
 import * as L from "leaflet";
+import {
+  haversineM,
+  decayOpacity,
+  withinHorizon,
+  parseEntities,
+  journeySegments,
+} from "./logic.mjs";
 
 const DECAY_RATE_DEFAULT = 0.1;
 const HORIZON_DEFAULT = 30;
@@ -17,17 +24,6 @@ const WS_HISTORY = "history/stream";
 
 function fireEvent(node, type, detail) {
   node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
-}
-
-function haversineM(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 class VisitHeatmapCard extends LitElement {
@@ -70,23 +66,7 @@ class VisitHeatmapCard extends LitElement {
   }
 
   _parseEntities(config) {
-    const entities = [];
-    if (config.show_all) {
-      for (const entity of Object.values(this.hass?.states || {})) {
-        if (
-          entity.attributes.latitude != null &&
-          entity.attributes.longitude != null &&
-          entity.entity_id.startsWith("device_tracker.") &&
-          !this.hass?.entities?.[entity.entity_id]?.hidden
-        ) {
-          entities.push({ entity: entity.entity_id });
-        }
-      }
-      return entities;
-    }
-    return (config.entities || []).map((entry) =>
-      typeof entry === "string" ? { entity: entry } : { ...entry }
-    );
+    return parseEntities(config, this.hass?.states || {}, this.hass?.entities || {});
   }
 
   _updateMapEntities() {
@@ -299,15 +279,11 @@ class VisitHeatmapCard extends LitElement {
   }
 
   _opacity(row) {
-    const rate = this._config.decay_rate ?? DECAY_RATE_DEFAULT;
-    const ageDays = (Date.now() - Date.parse(row.last_seen)) / 86400e3;
-    return Math.max(0, Math.pow(1 - rate, ageDays));
+    return decayOpacity(Date.now(), row.last_seen, this._config.decay_rate ?? DECAY_RATE_DEFAULT);
   }
 
   _withinHorizon(row) {
-    const horizonDays = this._config.horizon ?? HORIZON_DEFAULT;
-    const ageDays = (Date.now() - Date.parse(row.last_seen)) / 86400e3;
-    return ageDays <= horizonDays;
+    return withinHorizon(Date.now(), row.last_seen, this._config.horizon ?? HORIZON_DEFAULT);
   }
 
   _formatTime(row) {
@@ -390,11 +366,10 @@ class VisitHeatmapCard extends LitElement {
           marker.bindTooltip(this._tooltip(p), { direction: "top" });
           layers.push(marker);
         }
-        for (let i = 0; i < pts.length - 1; i++) {
-          const a = pts[i];
-          const b = pts[i + 1];
-          if (Date.parse(b.last_seen) - Date.parse(a.last_seen) > maxGapMs) continue;
-          if (this._hasStationaryBetween(device, a, b)) continue;
+        for (const { a, b } of journeySegments(pts, {
+          maxGapMs,
+          hasStationaryBetween: (x, y) => this._hasStationaryBetween(device, x, y),
+        })) {
           const segOpacity = Math.max(this._opacity(a), this._opacity(b));
           if (segOpacity <= 0) continue;
           layers.push(
