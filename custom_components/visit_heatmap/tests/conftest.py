@@ -39,27 +39,21 @@ def _sync_decorator(fn):
     return fn
 
 
-class _Vol:
-    class Optional:
-        def __init__(self, key, **kwargs):
-            self.key = key
+class _Marker:
+    def __init__(self, key, **kwargs):
+        self.key = key
 
 
-_websocket_const = _mod(
-    "homeassistant.components.websocket_api.const",
-    TYPE="type",
-    ATTR_ID="id",
-    ID_REGEX=None,
-)
 _websocket_api = _mod(
     "homeassistant.components.websocket_api",
-    const=_websocket_const,
-    vol=_Vol(),
     ActiveConnection=object,
     websocket_command=_ws_command,
     require_admin=_sync_decorator,
     async_response=_sync_decorator,
     async_register_command=lambda hass, fn: None,
+)
+sys.modules["voluptuous"] = _mod(
+    "voluptuous", Required=_Marker, Optional=_Marker
 )
 _util_dt = _mod(
     "homeassistant.util.dt",
@@ -83,7 +77,6 @@ sys.modules["homeassistant.components.frontend"] = _mod(
     async_add_extra_js_url=_noop,
 )
 sys.modules["homeassistant.components.websocket_api"] = _websocket_api
-sys.modules["homeassistant.components.websocket_api.const"] = _websocket_const
 
 
 def _load(name: str) -> types.ModuleType:

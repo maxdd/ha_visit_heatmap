@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
@@ -12,9 +13,8 @@ from .const import DOMAIN, WS_POINTS
 
 @websocket_api.websocket_command(
     {
-        websocket_api.const.TYPE: WS_POINTS,
-        websocket_api.const.ATTR_ID: websocket_api.const.ID_REGEX,
-        websocket_api.vol.Optional("entities", default=[]): [str],
+        vol.Required("type"): WS_POINTS,
+        vol.Optional("entities", default=[]): [str],
     }
 )
 @websocket_api.require_admin
