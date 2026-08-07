@@ -71,6 +71,9 @@ sys.modules["homeassistant.helpers.typing"] = _mod(
 sys.modules["homeassistant.util"] = _mod("homeassistant.util", dt=_util_dt)
 sys.modules["homeassistant.util.dt"] = _util_dt
 sys.modules["homeassistant.components"] = _mod("homeassistant.components")
+sys.modules["homeassistant.components.http"] = _mod(
+    "homeassistant.components.http", StaticPathConfig=object
+)
 sys.modules["homeassistant.components.frontend"] = _mod(
     "homeassistant.components.frontend",
     add_extra_js_url=lambda *a, **k: None,

@@ -25,10 +25,15 @@ def _from_iso(value: str) -> datetime:
 class VisitStore:
     """In-memory visit rows with an atomic JSON persistence."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, load: bool = True) -> None:
         self._path = Path(path)
         self.rows: list[dict] = []
         self._last_fix: dict[str, Fix] = {}
+        if load:
+            self._load()
+
+    def load(self) -> None:
+        """Load rows from disk. Run via the executor, never on the loop."""
         self._load()
 
     def _load(self) -> None:

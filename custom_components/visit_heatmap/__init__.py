@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 
 from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
@@ -37,7 +38,7 @@ class VisitHeatmapRuntime:
     def __init__(self, hass: HomeAssistant, options: ConfigType) -> None:
         self.hass = hass
         self.options = options
-        self.store = VisitStore(Path(hass.config.config_dir) / STORE_FILE)
+        self.store = VisitStore(Path(hass.config.config_dir) / STORE_FILE, load=False)
         self._unsub_listener = None
         self._save_task: asyncio.Task | None = None
         self._backfill_task: asyncio.Task | None = None
@@ -62,6 +63,7 @@ class VisitHeatmapRuntime:
         return int(self.options.get(CONF_BACKFILL_DAYS, DEFAULT_BACKFILL_DAYS))
 
     async def start(self) -> None:
+        await self.hass.async_add_executor_job(self.store.load)
         self.store.rebuild_last_fixes()
         if not self.store.rows:
             self._backfill_task = self.hass.async_create_background_task(
@@ -75,9 +77,15 @@ class VisitHeatmapRuntime:
     async def stop(self) -> None:
         if self._unsub_listener:
             self._unsub_listener()
-        for task in (self._save_task, self._backfill_task):
-            if task and not task.done():
-                task.cancel()
+        tasks = [
+            task
+            for task in (self._save_task, self._backfill_task)
+            if task and not task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self._flush()
 
     async def _flush(self) -> None:
@@ -138,10 +146,8 @@ async def _register_frontend(hass: HomeAssistant) -> None:
     if CARD_URL in _STATIC_REGISTERED:
         return
     _STATIC_REGISTERED.add(CARD_URL)
-    await hass.async_add_executor_job(
-        hass.http.register_static_path,
-        "/visit_heatmap",
-        str(Path(__file__).parent / "www"),
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig("/visit_heatmap", str(Path(__file__).parent / "www"))]
     )
     if hasattr(frontend, "async_add_extra_js_url"):
         await frontend.async_add_extra_js_url(hass, CARD_URL)
@@ -152,8 +158,13 @@ async def _register_frontend(hass: HomeAssistant) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigType) -> bool:
     runtime = VisitHeatmapRuntime(hass, entry.options)
     hass.data[DOMAIN] = runtime
-    await runtime.start()
-    await _register_frontend(hass)
+    try:
+        await runtime.start()
+        await _register_frontend(hass)
+    except Exception:
+        await runtime.stop()
+        hass.data.pop(DOMAIN, None)
+        raise
     entry.add_update_listener(async_reload_entry)
     return True
 
