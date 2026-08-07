@@ -8,7 +8,7 @@ from pathlib import Path
 from homeassistant.components import frontend
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.typing import ConfigType
 
 from .backfill import async_backfill
@@ -94,6 +94,7 @@ class VisitHeatmapRuntime:
             payload = self.store.payload()
             await self.hass.async_add_executor_job(self.store.save_payload, payload)
 
+    @callback
     def _on_state_changed(self, event) -> None:
         state = event.data.get("new_state")
         if state is None or not state.entity_id.startswith("device_tracker."):

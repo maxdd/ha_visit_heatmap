@@ -63,7 +63,9 @@ sys.modules["homeassistant"] = _mod("homeassistant")
 sys.modules["homeassistant.const"] = _mod(
     "homeassistant.const", EVENT_STATE_CHANGED="state_changed"
 )
-sys.modules["homeassistant.core"] = _mod("homeassistant.core", HomeAssistant=object)
+sys.modules["homeassistant.core"] = _mod(
+    "homeassistant.core", HomeAssistant=object, callback=lambda fn: fn
+)
 sys.modules["homeassistant.helpers"] = _mod("homeassistant.helpers")
 sys.modules["homeassistant.helpers.typing"] = _mod(
     "homeassistant.helpers.typing", ConfigType=dict
