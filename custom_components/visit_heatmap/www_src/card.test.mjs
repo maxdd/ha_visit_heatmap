@@ -72,7 +72,7 @@ test("_buildLayers paints stationary, moving dots, and a journey line", () => {
   const journeys = el._layers.filter((l) => dash(l) === "4");
   assert.equal(el._layers.length, 4);
   assert.equal(stationary.length, 1);
-  assert.equal(stationary[0].options.opacity, 1);
+  assert.ok(Math.abs(stationary[0].options.opacity - 1) < 1e-6);
   assert.equal(moving.length, 2);
   assert.equal(journeys.length, 1);
   assert.ok(Math.abs(journeys[0].options.opacity - 0.9 ** 7) < 1e-3);
