@@ -70,6 +70,11 @@ sys.modules["homeassistant.helpers"] = _mod("homeassistant.helpers")
 sys.modules["homeassistant.helpers.typing"] = _mod(
     "homeassistant.helpers.typing", ConfigType=dict
 )
+sys.modules["homeassistant.helpers.config_validation"] = _mod(
+    "homeassistant.helpers.config_validation",
+    positive_int=lambda v: v,
+    positive_float=lambda v: v,
+)
 sys.modules["homeassistant.util"] = _mod("homeassistant.util", dt=_util_dt)
 sys.modules["homeassistant.util.dt"] = _util_dt
 sys.modules["homeassistant.components"] = _mod("homeassistant.components")
@@ -82,6 +87,28 @@ sys.modules["homeassistant.components.frontend"] = _mod(
     async_add_extra_js_url=_noop,
 )
 sys.modules["homeassistant.components.websocket_api"] = _websocket_api
+
+
+class _ConfigFlow:
+    def __init_subclass__(cls, domain=None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.domain = domain
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        return _OptionsFlow(config_entry)
+
+
+class _OptionsFlow:
+    def __init__(self, config_entry):
+        self.config_entry = config_entry
+
+
+sys.modules["homeassistant.config_entries"] = _mod(
+    "homeassistant.config_entries",
+    ConfigFlow=_ConfigFlow,
+    OptionsFlow=_OptionsFlow,
+)
 
 
 def _load(name: str) -> types.ModuleType:
