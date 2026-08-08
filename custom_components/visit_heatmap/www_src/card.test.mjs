@@ -9,13 +9,30 @@ const BUNDLE = readFileSync(
   "utf8"
 );
 
-function makeCard() {
+const LEAFLET = readFileSync(
+  fileURLToPath(new URL("../../../node_modules/leaflet/dist/leaflet.js", import.meta.url)),
+  "utf8"
+);
+
+function makeDom() {
   const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", {
     runScripts: "dangerously",
     pretendToBeVisual: true,
     url: "http://localhost/",
   });
+  // Leaflet needs SVG support to pick its SVG renderer; jsdom lacks createSVGRect.
+  if (dom.window.SVGElement) {
+    dom.window.SVGElement.prototype.createSVGRect = function () {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    };
+  }
+  dom.window.eval(LEAFLET);
   dom.window.eval(BUNDLE);
+  return dom;
+}
+
+function makeCard() {
+  const dom = makeDom();
   const el = dom.window.document.createElement("visit-heatmap-card");
   el.hass = {
     states: {
@@ -38,6 +55,8 @@ function makeCard() {
     connection: null,
     locale: { language: "en" },
   };
+  // The card builds layers with the ha-map element's Leaflet; in tests we supply it directly.
+  el._mapL = dom.window.L;
   return { dom, el };
 }
 
@@ -56,7 +75,7 @@ test("show_all resolves GPS device_trackers only", () => {
   assert.equal(el._configEntities.map((e) => e.entity).join(","), "device_tracker.phone");
 });
 
-test("_buildLayers paints stationary, moving dots, and a journey line", () => {
+test("_buildLayers paints stationary, moving dots, and a journey line", async () => {
   const { el } = makeCard();
   const now = Date.now();
   el._rows = [
@@ -65,7 +84,7 @@ test("_buildLayers paints stationary, moving dots, and a journey line", () => {
     { device: "device_tracker.phone", lat: 52.3376, lon: 4.8716, last_seen: iso(now - 7 * DAY), moving: true },
     { device: "device_tracker.phone", lat: 52.36, lon: 4.9, last_seen: iso(now - 40 * DAY), moving: false },
   ];
-  el._buildLayers();
+  await el._buildLayers();
   const dash = (l) => (l.options.dashArray || "").split(" ")[0];
   const stationary = el._layers.filter((l) => !l.options.dashArray);
   const moving = el._layers.filter((l) => dash(l) === "2");
@@ -107,4 +126,65 @@ test("_zoneNameFor matches zone geometry", () => {
   const { el } = makeCard();
   assert.equal(el._zoneNameFor(52.3676, 4.9041), "zone.home");
   assert.equal(el._zoneNameFor(52.3526, 4.8879), undefined);
+});
+
+test("layers built with the ha-map Leaflet survive being added to a real map and moved", async () => {
+  const { dom, el } = makeCard();
+  const L = dom.window.L;
+  const now = Date.now();
+  el._rows = [
+    { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
+    { device: "device_tracker.phone", lat: 52.3526, lon: 4.8879, last_seen: iso(now - 7 * DAY + 5 * 60e3), moving: true },
+    { device: "device_tracker.phone", lat: 52.3376, lon: 4.8716, last_seen: iso(now - 7 * DAY), moving: true },
+  ];
+  await el._buildLayers();
+  assert.ok(el._layers.length >= 2);
+
+  const div = dom.window.document.createElement("div");
+  Object.defineProperty(div, "clientWidth", { value: 600, configurable: true });
+  Object.defineProperty(div, "clientHeight", { value: 400, configurable: true });
+  dom.window.document.body.appendChild(div);
+  const map = L.map(div, { center: [52.35, 4.9], zoom: 14 });
+  map._sizeChanged = true;
+
+  // Simulate ha-map's _drawLayers: inject the card's layers into the map.
+  for (const layer of el._layers) {
+    map.addLayer(layer);
+  }
+
+  // Moving the map fires moveend -> renderer _updatePaths -> circleMarker._empty.
+  map.setView([52.36, 4.9], 14);
+  assert.ok(true, "map move did not throw");
+});
+
+test("layers are built with the same Leaflet instance the map uses (no dual-copy mixing)", async () => {
+  const { dom, el } = makeCard();
+  const L = dom.window.L;
+  const now = Date.now();
+  el._rows = [
+    { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
+  ];
+  await el._buildLayers();
+  assert.equal(el._layers.length, 1);
+  // The marker must come from the same Leaflet the ha-map element would use,
+  // otherwise the SVG renderer's intersects() blows up on the foreign Bounds.
+  assert.equal(el._mapL, L);
+  assert.ok(el._layers[0] instanceof L.CircleMarker);
+});
+
+test("mixing two independent Leaflet copies crashes on map update (why the card must reuse ha-map's Leaflet)", () => {
+  const domA = makeDom();
+  const domB = makeDom();
+  const LA = domA.window.L;
+  const LB = domB.window.L;
+
+  const div = domA.window.document.createElement("div");
+  Object.defineProperty(div, "clientWidth", { value: 600, configurable: true });
+  Object.defineProperty(div, "clientHeight", { value: 400, configurable: true });
+  domA.window.document.body.appendChild(div);
+  const map = LA.map(div, { center: [52.36, 4.9], zoom: 14 });
+  map._sizeChanged = true;
+
+  const foreignMarker = LB.circleMarker([52.36, 4.9], { radius: 6 });
+  assert.throws(() => map.addLayer(foreignMarker), /undefined/);
 });

@@ -1,5 +1,4 @@
 import { LitElement, html, css, nothing } from "lit";
-import * as L from "leaflet";
 import {
   haversineM,
   decayOpacity,
@@ -49,6 +48,8 @@ class VisitHeatmapCard extends LitElement {
     this._timer = undefined;
     this._stateSig = "";
     this._refetchTimer = undefined;
+    this._mapL = undefined;
+    this._buildSeq = 0;
   }
 
   setConfig(config) {
@@ -317,82 +318,126 @@ class VisitHeatmapCard extends LitElement {
     );
   }
 
-  _buildLayers() {
-    const layers = [];
-    const showMoving = this._config.show_moving !== false;
-    const excludeZones = Boolean(this._config.exclude_zones);
-    const maxGapMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
-    const movingByDevice = {};
-
-    for (const row of this._rows) {
-      if (!this._withinHorizon(row)) continue;
-      if (excludeZones && this._zoneNameFor(row.lat, row.lon)) continue;
-      const color = this._color(row.device);
-      if (row.moving) {
-        (movingByDevice[row.device] ||= []).push(row);
-        continue;
-      }
-      const opacity = this._opacity(row);
-      const marker = L.circleMarker([row.lat, row.lon], {
-        radius: 6,
-        color,
-        weight: 2,
-        fillColor: color,
-        fillOpacity: opacity,
-        opacity,
-      });
-      marker.bindTooltip(this._tooltip(row), { direction: "top" });
-      layers.push(marker);
+  async _buildLayers() {
+    const seq = ++this._buildSeq;
+    const rows = this._rows;
+    if (!rows.length) {
+      this._layers = [];
+      this._verifyLayersInjected();
+      return;
     }
+    const L = await this._resolveMapLeaflet();
+    if (!L || seq !== this._buildSeq) return;
+    try {
+      const layers = [];
+      const showMoving = this._config.show_moving !== false;
+      const excludeZones = Boolean(this._config.exclude_zones);
+      const maxGapMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
+      const movingByDevice = {};
 
-    if (showMoving) {
-      for (const device of Object.keys(movingByDevice)) {
-        const pts = movingByDevice[device].sort(
-          (a, b) => Date.parse(a.last_seen) - Date.parse(b.last_seen)
-        );
-        const color = this._color(device);
-        for (const p of pts) {
-          const opacity = this._opacity(p);
-          if (opacity <= 0) continue;
-          const marker = L.circleMarker([p.lat, p.lon], {
-            radius: 3,
-            color,
-            weight: 1,
-            fillColor: color,
-            fillOpacity: opacity * 0.6,
-            opacity,
-            dashArray: "2 2",
-          });
-          marker.bindTooltip(this._tooltip(p), { direction: "top" });
-          layers.push(marker);
+      for (const row of rows) {
+        if (!this._withinHorizon(row)) continue;
+        if (excludeZones && this._zoneNameFor(row.lat, row.lon)) continue;
+        const color = this._color(row.device);
+        if (row.moving) {
+          (movingByDevice[row.device] ||= []).push(row);
+          continue;
         }
-        for (const { a, b } of journeySegments(pts, {
-          maxGapMs,
-          hasStationaryBetween: (x, y) => this._hasStationaryBetween(device, x, y),
-        })) {
-          const segOpacity = Math.max(this._opacity(a), this._opacity(b));
-          if (segOpacity <= 0) continue;
-          layers.push(
-            L.polyline(
-              [
-                [a.lat, a.lon],
-                [b.lat, b.lon],
-              ],
-              {
-                color,
-                weight: 2,
-                opacity: segOpacity,
-                dashArray: "4 6",
-                interactive: false,
-              }
-            )
+        const opacity = this._opacity(row);
+        const marker = L.circleMarker([row.lat, row.lon], {
+          radius: 6,
+          color,
+          weight: 2,
+          fillColor: color,
+          fillOpacity: opacity,
+          opacity,
+        });
+        marker.bindTooltip(this._tooltip(row), { direction: "top" });
+        layers.push(marker);
+      }
+
+      if (showMoving) {
+        for (const device of Object.keys(movingByDevice)) {
+          const pts = movingByDevice[device].sort(
+            (a, b) => Date.parse(a.last_seen) - Date.parse(b.last_seen)
           );
+          const color = this._color(device);
+          for (const p of pts) {
+            const opacity = this._opacity(p);
+            if (opacity <= 0) continue;
+            const marker = L.circleMarker([p.lat, p.lon], {
+              radius: 3,
+              color,
+              weight: 1,
+              fillColor: color,
+              fillOpacity: opacity * 0.6,
+              opacity,
+              dashArray: "2 2",
+            });
+            marker.bindTooltip(this._tooltip(p), { direction: "top" });
+            layers.push(marker);
+          }
+          for (const { a, b } of journeySegments(pts, {
+            maxGapMs,
+            hasStationaryBetween: (x, y) => this._hasStationaryBetween(device, x, y),
+          })) {
+            const segOpacity = Math.max(this._opacity(a), this._opacity(b));
+            if (segOpacity <= 0) continue;
+            layers.push(
+              L.polyline(
+                [
+                  [a.lat, a.lon],
+                  [b.lat, b.lon],
+                ],
+                {
+                  color,
+                  weight: 2,
+                  opacity: segOpacity,
+                  dashArray: "4 6",
+                  interactive: false,
+                }
+              )
+            );
+          }
         }
       }
-    }
 
-    this._layers = layers;
-    this._verifyLayersInjected();
+      if (seq !== this._buildSeq) return;
+      this._layers = layers;
+      this._verifyLayersInjected();
+    } catch (err) {
+      this._layers = [];
+      console.error("visit-heatmap: failed to build map layers", err);
+    }
+  }
+
+  _resolveMapLeaflet() {
+    if (this._mapL) return Promise.resolve(this._mapL);
+    const haMap = this.renderRoot?.querySelector("ha-map");
+    if (haMap?.Leaflet) {
+      this._mapL = haMap.Leaflet;
+      return Promise.resolve(this._mapL);
+    }
+    return new Promise((resolve) => {
+      let tries = 0;
+      const iv = window.setInterval(() => {
+        if (!this.isConnected) {
+          window.clearInterval(iv);
+          resolve(undefined);
+          return;
+        }
+        tries++;
+        const el = this.renderRoot?.querySelector("ha-map");
+        if (el?.Leaflet) {
+          window.clearInterval(iv);
+          this._mapL = el.Leaflet;
+          resolve(this._mapL);
+        } else if (tries >= 50) {
+          window.clearInterval(iv);
+          resolve(undefined);
+        }
+      }, 200);
+    });
   }
 
   _verifyLayersInjected() {

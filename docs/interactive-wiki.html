@@ -605,9 +605,11 @@
         <h4>injection into ha-map</h4>
         <p>The constructed array of Leaflet layers is bound to the stock
         <code class="inline">&lt;ha-map&gt;</code>'s public <code class="inline">layers</code>
-        property via Lit. ha-map's own Leaflet copy adds received foreign-copy layers by
-        duck-typing (<code class="inline">layer._layerAdd</code>) — so the bundled Leaflet
-        is not instanced by users, it stays our private sturdy.</p>
+        property via Lit. Leaflet is no longer bundled with the card: it is resolved at
+        runtime from the ha-map element (<code class="inline">el.Leaflet</code>, retried until
+        it mounts) and every layer is built with that exact copy — the card never mixes two
+        independent Leaflet copies, which would corrupt the shared SVG renderer's
+        <code class="inline">_empty</code> bookkeeping and crash on map moves.</p>
         <p class="muted">A <code class="inline">_verifyLayersInjected</code> guard periodically
         checks <code class="inline">map.hasLayer(layer)</code> and warns if any layer was
         dropped.</p>
