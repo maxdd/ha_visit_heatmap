@@ -503,6 +503,12 @@ class VisitHeatmapCard extends LitElement {
   }
 
   static styles = css`
+    :host {
+      display: block;
+      width: 100%;
+      max-width: var(--visit-heatmap-max-width, 960px);
+      margin: 0 auto;
+    }
     ha-card {
       overflow: hidden;
       width: 100%;
