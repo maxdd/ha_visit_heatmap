@@ -111,6 +111,24 @@ test("opacity and horizon follow the decay model", () => {
   assert.equal(el._withinHorizon(rows.d40), false);
 });
 
+test("_hasStationaryBetween only splits journeys on stops that outlast max_gap", () => {
+  const { el } = makeCard();
+  const now = Date.now();
+  const a = { device: "device_tracker.phone", lat: 52.35, lon: 4.88, last_seen: iso(now - 30 * 60e3) };
+  const b = { device: "device_tracker.phone", lat: 52.36, lon: 4.9, last_seen: iso(now) };
+  el._rows = [
+    a,
+    { device: "device_tracker.phone", lat: 52.35, lon: 4.89, first_seen: iso(now - 25 * 60e3), last_seen: iso(now - 10 * 60e3), moving: false },
+    b,
+  ];
+  // 15-minute coffee stop: shorter than max_gap (30 min) -> journey stays connected.
+  assert.equal(el._hasStationaryBetween("device_tracker.phone", a, b), false);
+  // Same stop stretched past max_gap -> a real break.
+  el._rows[1].last_seen = iso(now - 60e3);
+  el._rows[1].first_seen = iso(now - 40 * 60e3);
+  assert.equal(el._hasStationaryBetween("device_tracker.phone", a, b), true);
+});
+
 test("_buildPaths derives trail paths from history states", () => {
   const { el } = makeCard();
   const now = Date.now();

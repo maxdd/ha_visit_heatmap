@@ -9,8 +9,10 @@ Terms used consistently across the ADRs, code, and card config.
 | **Refresh** | Updating an existing visit point's `last_seen` to "now" when the device returns within the dedupe radius. `first_seen` is never changed. Keeps the point solid again without data growth. |
 | **Stationary fix** | A position recorded while the device is not meaningfully moving. These become visit points. |
 | **Moving fix** | A position recorded while the device is travelling between places. Kept as its own row so routes are visible; rendered distinctly (smaller/fainter) and toggleable. |
-| **Journey** | A continuous travel episode: the consecutive moving fixes of a device that are not interrupted by a stationary visit point and not separated by more than `max_gap`. Rendered as a dashed polyline (a "journey line") between its moving fixes, fading with the recency of each segment's more-recent endpoint. |
+| **Journey** | A continuous travel episode: the consecutive moving fixes of a device that are not interrupted by a long stationary visit point and not separated by more than `max_gap` — or, when close in space, more than `max_dist`. Rendered as a dashed polyline (a "journey line") between its moving fixes, fading with the recency of each segment's more-recent endpoint. |
 | **Max gap** | Card config (default **30 min**): the maximum time between consecutive moving fixes for them to stay part of the same journey. |
+| **Max dist** | Card config (default **1000 m**): consecutive moving fixes closer than this stay part of the same journey even when the time between them exceeds `max_gap`. |
+| **Journey break** | A consecutive pair of moving fixes is *not* connected when both the time gap (`max_gap`) and the distance (`max_dist`) are exceeded, or when a stationary visit point that lasted at least `max_gap` falls between them. Brief stops (shorter than `max_gap`) stay inside one journey. |
 | **Move speed threshold** | Speed (default **2 m/s ≈ 7 km/h**) between consecutive fixes of a device; a fix with speed ≥ the threshold is classified **moving**, below it **stationary**. The first fix for a device is treated as stationary. |
 | **Recency** | `now − last_seen` for a visit point. The input to the decay model. |
 | **Decay rate** | Card config percentage per day (default 10%). Each day, a visit point's opacity is multiplied by `(1 − decay_rate)` to the power of its fractional age in days. |
@@ -41,6 +43,7 @@ Defaults that live in the **card** config (visual, computed client-side):
 | `decay_rate` | 10 | %/day |
 | `horizon` | 30 | days |
 | `max_gap` | 30 | minutes |
+| `max_dist` | 1000 | meters |
 | `show_moving` | true | on/off |
 | `exclude_zones` | false | on/off |
 | `show_all` | false | on/off |

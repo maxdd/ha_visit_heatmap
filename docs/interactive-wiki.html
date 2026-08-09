@@ -633,9 +633,10 @@
     <p>Moving rows for one device are sorted by time. A dashed polyline joins consecutive
       dots <b>unless</b> a segment should break:</p>
     <ul>
-      <li><b>time gap</b> — the delta exceeds <code class="inline">max_gap</code> (default 30 min);</li>
-      <li><b>stationary between</b> — a stationary row for the same device lies between the two fixes
-      (started pausing = two trips, not one);</li>
+      <li><b>time gap</b> — the delta exceeds <code class="inline">max_gap</code> (default 30 min) <i>and</i>
+      the dots are farther apart than <code class="inline">max_dist</code> (default 1000 m);</li>
+      <li><b>long stationary between</b> — a stationary row that lasted at least <code class="inline">max_gap</code>
+      lies between the two fixes (a real stop splits the trip; a brief pause stays inside one journey);</li>
       <li><b>too old</b> — either endpoint's opacity hit 0.</li>
     </ul>
     <p>A surviving segment gets the decay opacity of its <b>more-recent</b> endpoint —
@@ -777,6 +778,7 @@
       <tr><td class="mono">decay_rate / horizon</td><td>Card knobs: %-per-day fade factor, and the age after which a visit disappears.</td></tr>
       <tr><td class="mono">retention_days</td><td>Server-side pruning age; capacity bound, not cosmetic.</td></tr>
       <tr><td class="mono">max_gap</td><td>Longest time between two moving fixes that can be connected by a journey.</td></tr>
+      <tr><td class="mono">max_dist</td><td>Moving fixes closer than this (m) stay connected even past max_gap.</td></tr>
     </table>
   </section>
 
@@ -1066,6 +1068,7 @@ _buildLayers() {
   const layers = [];
   const showMoving = this._config.show_moving !== false;
   const maxGapMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
+  const maxDistM = this._config.max_dist ?? MAX_DIST_DEFAULT;
   const movingByDevice = {};
 
   for (const row of this._rows) {
@@ -1092,7 +1095,10 @@ _buildLayers() {
       for (const p of pts) { /* small dashed moving markers */ }
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
-        if (Date.parse(b.last_seen) - Date.parse(a.last_seen) > maxGapMs) continue;
+        const gapMs = Date.parse(b.last_seen) - Date.parse(a.last_seen);
+        const closeByTime = gapMs <= maxGapMs;
+        const closeByDist = haversineM(a.lat, a.lon, b.lat, b.lon) <= maxDistM;
+        if (!closeByTime && !closeByDist) continue;
         if (this._hasStationaryBetween(device, a, b)) continue;
         const segOpacity = Math.max(this._opacity(a), this._opacity(b));  // → recent endpoint
         if (segOpacity <= 0) continue;
@@ -1109,9 +1115,11 @@ _buildLayers() {
 <script type="text/plain" id="s-journey">
 _hasStationaryBetween(device, a, b) {
   const aT = Date.parse(a.last_seen), bT = Date.parse(b.last_seen);
+  const minDwellMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
   return this._rows.some(r =>
     r.device === device && !r.moving &&
-    Date.parse(r.last_seen) > aT && Date.parse(r.last_seen) < bT);
+    Date.parse(r.last_seen) > aT && Date.parse(r.last_seen) < bT &&
+    Date.parse(r.last_seen) - Date.parse(r.first_seen) >= minDwellMs);
 }
 
 // a segment keeps the opacity of its MORE-RECENT endpoint (b is later here)

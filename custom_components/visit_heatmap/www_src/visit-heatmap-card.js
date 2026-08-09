@@ -10,6 +10,7 @@ import {
 const DECAY_RATE_DEFAULT = 0.1;
 const HORIZON_DEFAULT = 30;
 const MAX_GAP_DEFAULT = 30;
+const MAX_DIST_DEFAULT = 1000;
 const REFRESH_PERIOD_MS = 300000;
 const REFETCH_DEBOUNCE_MS = 1500;
 
@@ -309,12 +310,14 @@ class VisitHeatmapCard extends LitElement {
   _hasStationaryBetween(device, a, b) {
     const aTime = Date.parse(a.last_seen);
     const bTime = Date.parse(b.last_seen);
+    const minDwellMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
     return this._rows.some(
       (r) =>
         r.device === device &&
         !r.moving &&
         Date.parse(r.last_seen) > aTime &&
-        Date.parse(r.last_seen) < bTime
+        Date.parse(r.last_seen) < bTime &&
+        Date.parse(r.last_seen) - Date.parse(r.first_seen) >= minDwellMs
     );
   }
 
@@ -333,6 +336,7 @@ class VisitHeatmapCard extends LitElement {
       const showMoving = this._config.show_moving !== false;
       const excludeZones = Boolean(this._config.exclude_zones);
       const maxGapMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
+      const maxDistM = this._config.max_dist ?? MAX_DIST_DEFAULT;
       const movingByDevice = {};
 
       for (const row of rows) {
@@ -379,6 +383,7 @@ class VisitHeatmapCard extends LitElement {
           }
           for (const { a, b } of journeySegments(pts, {
             maxGapMs,
+            maxDistM,
             hasStationaryBetween: (x, y) => this._hasStationaryBetween(device, x, y),
           })) {
             const segOpacity = Math.max(this._opacity(a), this._opacity(b));
@@ -602,6 +607,7 @@ class VisitHeatmapCardEditor extends LitElement {
         })}
         ${text("Horizon (days)", c.horizon ?? 30, this._onNumber("horizon"))}
         ${text("Max gap (min)", c.max_gap ?? 30, this._onNumber("max_gap"))}
+        ${text("Max dist (m)", c.max_dist ?? 1000, this._onNumber("max_dist"))}
         <div>
           <ha-switch ?checked=${c.show_moving !== false} @change=${this._onToggle("show_moving")}></ha-switch>
           <span>Show moving points and journey lines</span>

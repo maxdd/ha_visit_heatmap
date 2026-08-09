@@ -61,6 +61,7 @@ horizon: 30          # days until a visit disappears (default)
 show_moving: true    # show moving points + journey lines
 exclude_zones: false # hide visits inside configured HA zones
 max_gap: 30          # minutes to join two moving fixes into one journey (default)
+max_dist: 1000       # meters; close fixes stay connected even past max_gap (default)
 ```
 
 It also accepts the default map card's keys: `zones`, `hours_to_show`,

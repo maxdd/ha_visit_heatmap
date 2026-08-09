@@ -57,6 +57,25 @@ test("journeySegments: joins consecutive, breaks on gap", () => {
   assert.equal(segs[0].b.last_seen, pts[2].last_seen);
 });
 
+test("journeySegments: distance keeps close points connected across a large time gap", () => {
+  const pts = [
+    mk(BASE - 2 * DAY, 52.0, 4.0),
+    mk(BASE - 1 * DAY, 52.0001, 4.0001),
+  ];
+  const opts = { maxGapMs: 30 * 60e3 };
+  assert.equal(journeySegments(pts, opts).length, 0);
+  assert.equal(journeySegments(pts, { ...opts, maxDistM: 1000 }).length, 1);
+});
+
+test("journeySegments: breaks when both time and distance exceed their thresholds", () => {
+  const pts = [
+    mk(BASE - 2 * DAY, 52.0, 4.0),
+    mk(BASE - 1 * DAY, 52.1, 4.1),
+  ];
+  const opts = { maxGapMs: 30 * 60e3, maxDistM: 1000 };
+  assert.equal(journeySegments(pts, opts).length, 0);
+});
+
 test("journeySegments: stationary-between suppresses the segment", () => {
   const pts = [mk(BASE - 120_000, 52.0, 4.0), mk(BASE - 60_000, 52.2, 4.2)];
   const opts = { maxGapMs: 30 * 60e3 };

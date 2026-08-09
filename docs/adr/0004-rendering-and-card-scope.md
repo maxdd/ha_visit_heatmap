@@ -33,8 +33,9 @@ history subscription, and building the visit layer.
 - **Journey lines**: within each journey, consecutive moving fixes are joined by a
   dashed polyline (device color), so a continuous travel episode reads as a route.
   Segmentation is computed at render time: consecutive moving rows belong to the
-  same journey unless a stationary visit point falls chronologically between them or
-  the gap between them exceeds `max_gap` (default ~30 min, card config). Each
+  same journey unless a stationary visit point that lasted at least `max_gap` falls
+  chronologically between them, or both the time gap (`max_gap`, default ~30 min) and
+  the distance (`max_dist`, default ~1000 m) are exceeded. Each
   segment's opacity equals the decay opacity of its more-recent endpoint, so an old
   journey fades like its points. Journey lines are governed by the same
   `show_moving` toggle.

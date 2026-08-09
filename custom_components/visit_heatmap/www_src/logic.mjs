@@ -42,13 +42,17 @@ export function parseEntities(config, states, entityRegistry) {
   );
 }
 
-export function journeySegments(points, { maxGapMs, hasStationaryBetween }) {
+export function journeySegments(points, { maxGapMs, maxDistM, hasStationaryBetween }) {
   const segments = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
     const b = points[i + 1];
     const gapMs = Date.parse(b.last_seen) - Date.parse(a.last_seen);
-    if (gapMs > maxGapMs) continue;
+    const connectedByTime = gapMs <= maxGapMs;
+    const connectedByDistance =
+      maxDistM != null &&
+      haversineM(a.lat, a.lon, b.lat, b.lon) <= maxDistM;
+    if (!connectedByTime && !connectedByDistance) continue;
     if (hasStationaryBetween && hasStationaryBetween(a, b)) continue;
     segments.push({ a, b });
   }
