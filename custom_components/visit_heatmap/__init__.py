@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from homeassistant.components import frontend
@@ -10,6 +11,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .backfill import async_backfill
 from .const import (
@@ -28,6 +30,8 @@ from .const import (
 from .logic import utc_now
 from .store import VisitStore
 from .websocket import async_register_websocket
+
+_LOGGER = logging.getLogger(__name__)
 
 _STATIC_REGISTERED: set[str] = set()
 
@@ -144,16 +148,77 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def _register_frontend(hass: HomeAssistant) -> None:
+    """Serve the card bundle and get it loaded by the dashboards.
+
+    The card is registered as a Lovelace *resource* (the mechanism HACS
+    uses), which is fetched over the websocket on every dashboard load —
+    cache or no cache. The frontend's extra-js list lives in the app HTML,
+    which the service worker caches, so after an HA restart a page can keep
+    serving a stale snapshot that never loads the card ("Custom element
+    doesn't exist"). The resource path is therefore preferred; extra-js
+    remains only as the fallback for YAML-managed resources.
+    """
     if CARD_URL in _STATIC_REGISTERED:
         return
     _STATIC_REGISTERED.add(CARD_URL)
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig("/visit_heatmap", str(Path(__file__).parent / "www"))]
-    )
-    if hasattr(frontend, "async_add_extra_js_url"):
-        await frontend.async_add_extra_js_url(hass, CARD_URL)
-    else:
-        frontend.add_extra_js_url(hass, CARD_URL)
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig("/visit_heatmap", str(Path(__file__).parent / "www"))]
+        )
+    except RuntimeError:
+        _LOGGER.debug("visit_heatmap static path already served")
+
+    integration = await async_get_integration(hass, DOMAIN)
+    versioned_url = f"{CARD_URL}?v={integration.version}"
+
+    if await _async_register_lovelace_resource(hass, versioned_url):
+        _LOGGER.debug("Visit Heatmap card registered as a Lovelace resource")
+        return
+
+    try:
+        if hasattr(frontend, "async_add_extra_js_url"):
+            await frontend.async_add_extra_js_url(hass, versioned_url)
+        elif hasattr(frontend, "add_extra_js_url"):
+            frontend.add_extra_js_url(hass, versioned_url)
+        else:
+            raise RuntimeError("no frontend extra-js API available")
+    except Exception:
+        _LOGGER.warning(
+            "Could not register the Visit Heatmap card with the dashboards — "
+            "Lovelace will report 'Custom element doesn't exist' until it is",
+            exc_info=True,
+        )
+
+
+async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> bool:
+    """Point a Lovelace resource entry at the current card URL.
+
+    One entry, created if missing and updated in place on version changes —
+    including an entry the user once added by hand for the same path.
+    Returns False when Lovelace storage is unavailable, so the caller can
+    fall back to the frontend's extra-js list.
+    """
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None)
+    if resources is None or not hasattr(resources, "async_create_item"):
+        return False
+    try:
+        if not getattr(resources, "loaded", False):
+            await resources.async_load()
+            resources.loaded = True
+        path = CARD_URL.split("?")[0]
+        for item in resources.async_items():
+            if str(item.get("url", "")).split("?")[0] == path:
+                if item.get("url") != url:
+                    await resources.async_update_item(item["id"], {"url": url})
+                return True
+        await resources.async_create_item({"res_type": "module", "url": url})
+    except Exception:
+        _LOGGER.warning(
+            "Could not manage the Lovelace resource for %s", CARD_URL, exc_info=True
+        )
+        return False
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigType) -> bool:

@@ -852,7 +852,7 @@ async def async_setup_entry(hass, entry):
     runtime = VisitHeatmapRuntime(hass, entry.options)
     hass.data[DOMAIN] = runtime
     await runtime.start()
-    await _register_frontend(hass)         # serves /visit_heatmap/* + card JS URL
+    await _register_frontend(hass)         # serves /visit_heatmap/* + Lovelace resource
     entry.add_update_listener(async_reload_entry)
     return True
 

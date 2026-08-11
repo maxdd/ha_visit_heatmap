@@ -540,7 +540,9 @@ class VisitHeatmapCard extends LitElement {
   `;
 }
 
-customElements.define("visit-heatmap-card", VisitHeatmapCard);
+if (!customElements.get("visit-heatmap-card")) {
+  customElements.define("visit-heatmap-card", VisitHeatmapCard);
+}
 
 class VisitHeatmapCardEditor extends LitElement {
   static properties = {
@@ -548,6 +550,11 @@ class VisitHeatmapCardEditor extends LitElement {
     _config: {},
     _entities: { state: true },
   };
+
+  constructor() {
+    super();
+    this._config = {};
+  }
 
   setConfig(config) {
     this._config = config || {};
@@ -625,12 +632,16 @@ class VisitHeatmapCardEditor extends LitElement {
   }
 }
 
-customElements.define("visit-heatmap-card-editor", VisitHeatmapCardEditor);
+if (!customElements.get("visit-heatmap-card-editor")) {
+  customElements.define("visit-heatmap-card-editor", VisitHeatmapCardEditor);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "visit-heatmap-card",
-  name: "Visit Heatmap",
-  description:
-    "Map card with a fading layer of every place a device has visited.",
-});
+if (!window.customCards.some((c) => c.type === "visit-heatmap-card")) {
+  window.customCards.push({
+    type: "visit-heatmap-card",
+    name: "Visit Heatmap",
+    description:
+      "Map card with a fading layer of every place a device has visited.",
+  });
+}

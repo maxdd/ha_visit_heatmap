@@ -49,7 +49,7 @@
       height: 100%;
       padding-bottom: 100%;
     }
-  `};customElements.define("visit-heatmap-card",Q);var tt=class extends y{static properties={hass:{attribute:!1},_config:{},_entities:{state:!0}};setConfig(t){this._config=t||{},this._entities=(this._config.entities||[]).map(e=>typeof e=="string"?e:e.entity).join(", ")}_set(t,e){Wt(this,"config-changed",{config:{...this._config,[t]:e}})}_onEntities(t){let s=t.target.value.split(",").map(i=>i.trim()).filter(Boolean).map(i=>({entity:i}));this._set("entities",s)}_onNumber(t){return e=>{let s=parseFloat(e.target.value);Number.isFinite(s)&&this._set(t,s)}}_onToggle(t){return e=>this._set(t,e.target.checked)}render(){let t=this._config,e=(s,i,o)=>D`<ha-textfield
+  `};customElements.get("visit-heatmap-card")||customElements.define("visit-heatmap-card",Q);var tt=class extends y{static properties={hass:{attribute:!1},_config:{},_entities:{state:!0}};constructor(){super(),this._config={}}setConfig(t){this._config=t||{},this._entities=(this._config.entities||[]).map(e=>typeof e=="string"?e:e.entity).join(", ")}_set(t,e){Wt(this,"config-changed",{config:{...this._config,[t]:e}})}_onEntities(t){let s=t.target.value.split(",").map(i=>i.trim()).filter(Boolean).map(i=>({entity:i}));this._set("entities",s)}_onNumber(t){return e=>{let s=parseFloat(e.target.value);Number.isFinite(s)&&this._set(t,s)}}_onToggle(t){return e=>this._set(t,e.target.checked)}render(){let t=this._config,e=(s,i,o)=>D`<ha-textfield
         label=${s}
         .value=${String(i??"")}
         @change=${o}
@@ -80,7 +80,7 @@
           <span>Exclude points inside zones</span>
         </div>
       </div>
-    `}};customElements.define("visit-heatmap-card-editor",tt);window.customCards=window.customCards||[];window.customCards.push({type:"visit-heatmap-card",name:"Visit Heatmap",description:"Map card with a fading layer of every place a device has visited."});})();
+    `}};customElements.get("visit-heatmap-card-editor")||customElements.define("visit-heatmap-card-editor",tt);window.customCards=window.customCards||[];window.customCards.some(n=>n.type==="visit-heatmap-card")||window.customCards.push({type:"visit-heatmap-card",name:"Visit Heatmap",description:"Map card with a fading layer of every place a device has visited."});})();
 /*! Bundled license information:
 
 @lit/reactive-element/css-tag.js:

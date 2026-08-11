@@ -1,9 +1,10 @@
 {
   "domain": "visit_heatmap",
   "name": "Visit Heatmap",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "config_flow": true,
   "dependencies": ["history", "http", "frontend", "websocket_api"],
+  "after_dependencies": ["lovelace"],
   "iot_class": "local_polling",
   "integration_type": "service",
   "codeowners": ["@your-github-username"],

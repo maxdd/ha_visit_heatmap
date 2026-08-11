@@ -31,6 +31,10 @@ async def _noop(*_args, **_kwargs) -> None:
     pass
 
 
+def _integration(_domain: str) -> types.SimpleNamespace:
+    return types.SimpleNamespace(version="0.1.1")
+
+
 def _ws_command(schema):
     return lambda fn: fn
 
@@ -85,6 +89,10 @@ sys.modules["homeassistant.components.frontend"] = _mod(
     "homeassistant.components.frontend",
     add_extra_js_url=lambda *a, **k: None,
     async_add_extra_js_url=_noop,
+)
+sys.modules["homeassistant.loader"] = _mod(
+    "homeassistant.loader",
+    async_get_integration=lambda hass, domain: _integration(domain),
 )
 sys.modules["homeassistant.components.websocket_api"] = _websocket_api
 
