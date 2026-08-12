@@ -241,3 +241,16 @@ test("mixing two independent Leaflet copies crashes on map update (why the card 
   const foreignMarker = LB.circleMarker([52.36, 4.9], { radius: 6 });
   assert.throws(() => map.addLayer(foreignMarker), /undefined/);
 });
+
+test("on-demand ha-map load fails cleanly when HA loader internals are absent", async () => {
+  const { dom, el } = makeCard();
+  el._config = { debug: true };
+  dom.window.customElements.whenDefined = () =>
+    Promise.reject(new Error("partial-panel-resolver not available in test DOM"));
+  const before = el._debugLines.length;
+  const result = await el._ensureHaMapLoaded();
+  assert.equal(result, undefined);
+  assert.ok(el._debugLines.length > before);
+  assert.match(el._debugLines.join("\n"), /FAILED/);
+  assert.equal(el._debug.leafletState, "load-failed");
+});

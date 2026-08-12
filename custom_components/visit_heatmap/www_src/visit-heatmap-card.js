@@ -33,6 +33,25 @@ function formatTs(ms) {
   return `${d.toLocaleTimeString()}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error(`Timed out after ${ms}ms waiting for ${label}`)),
+      ms,
+    );
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 class VisitHeatmapCard extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -467,25 +486,96 @@ class VisitHeatmapCard extends LitElement {
     }
   }
 
-  _resolveMapLeaflet() {
-    if (this._mapL) return Promise.resolve(this._mapL);
-    const haMap = this.renderRoot?.querySelector("ha-map");
-    const haMapDefined = !!customElements.get("ha-map");
-    if (haMap?.Leaflet) {
-      this._mapL = haMap.Leaflet;
+  async _resolveMapLeaflet() {
+    if (this._mapL) return this._mapL;
+    const haMap = () => this.renderRoot?.querySelector("ha-map");
+    const haMapDefined = () => !!customElements.get("ha-map");
+
+    // HA only registers the ha-map element when something lazy-loads and
+    // instantiates it (ha-panel-config's "general" route, or a Map card).
+    if (haMap()?.Leaflet) {
+      this._mapL = haMap().Leaflet;
       this._debug.leafletState = "resolved-from-ha-map";
-      this._log("leaflet resolved from ha-map", haMapDefined ? "(defined)" : "(NOT a registered element)");
-      return Promise.resolve(this._mapL);
+      this._log(
+        "leaflet resolved from ha-map",
+        haMapDefined() ? "(defined)" : "(NOT a registered element)",
+      );
+      return this._mapL;
     }
-    this._debug.leafletState = haMapDefined ? "waiting-for-leaflet" : "ha-map-not-loaded";
+
+    this._debug.leafletState = haMapDefined() ? "waiting-for-leaflet" : "ha-map-not-loaded";
     this._log(
       "leaflet unresolved: ha-map defined=",
-      haMapDefined,
+      haMapDefined(),
       "element in shadow=",
-      !!haMap,
+      !!haMap(),
       "has Leaflet=",
-      !!haMap?.Leaflet,
+      !!haMap()?.Leaflet,
     );
+
+    if (!haMapDefined()) {
+      await this._ensureHaMapLoaded();
+    }
+
+    return this._waitForLeaflet();
+  }
+
+  // Strategy ported from KipK/load-ha-components (MIT): HA lazy-imports
+  // ha-map via the config panel's "general" route, not its own chunk.
+  // https://github.com/KipK/load-ha-components
+  async _loadHaMap() {
+    const step = (p, label, ms = 15000) => withTimeout(p, ms, label);
+    await step(customElements.whenDefined("partial-panel-resolver"), "partial-panel-resolver");
+
+    const resolver = document.createElement("partial-panel-resolver");
+    const panels = { tmp: { url_path: "tmp", component_name: "config" } };
+    let routerOptions;
+    if (typeof resolver._getRoutes === "function") {
+      routerOptions = resolver._getRoutes(panels);
+    } else if (typeof resolver._updateRoutes === "function") {
+      resolver.hass = { panels };
+      const result = resolver._updateRoutes();
+      if (result && typeof result.then === "function") {
+        void Promise.resolve(result).catch(() => undefined);
+      }
+      routerOptions = resolver.routerOptions;
+    } else {
+      throw new Error(
+        "partial-panel-resolver exposes neither _getRoutes() nor _updateRoutes()",
+      );
+    }
+    const route = routerOptions?.routes?.tmp;
+    if (typeof route?.load !== "function") {
+      throw new Error("partial-panel-resolver has no load() for the config panel");
+    }
+    await step(route.load.call(route), "config panel");
+
+    await step(customElements.whenDefined("ha-panel-config"), "ha-panel-config");
+    const configPanel = document.createElement("ha-panel-config");
+    const general = configPanel.routerOptions?.routes?.general;
+    if (typeof general?.load !== "function") {
+      throw new Error("ha-panel-config has no load() for the general route");
+    }
+    await step(general.load.call(general), "config/general route");
+
+    if (!customElements.get("ha-map")) {
+      throw new Error("ha-map still undefined after loading config/general");
+    }
+    this._log("ha-map loaded on demand through config/general");
+  }
+
+  _ensureHaMapLoaded() {
+    if (this._loadHaMapPromise) return this._loadHaMapPromise;
+    this._loadHaMapPromise = this._loadHaMap().catch((err) => {
+      this._debug.leafletState = "load-failed";
+      this._log("on-demand ha-map load FAILED:", err?.message || err);
+      console.error("visit-heatmap: failed to load ha-map on demand", err);
+    });
+    return this._loadHaMapPromise;
+  }
+
+  _waitForLeaflet() {
+    if (this._mapL) return Promise.resolve(this._mapL);
     return new Promise((resolve) => {
       let tries = 0;
       const iv = window.setInterval(() => {
@@ -506,7 +596,7 @@ class VisitHeatmapCard extends LitElement {
           window.clearInterval(iv);
           this._debug.leafletState = "timeout";
           this._log(
-            "leaflet TIMEOUT after 10s. Add a standard 'Map' card to any dashboard so HA loads the ha-map element.",
+            "leaflet TIMEOUT after 10s: ha-map never exposed Leaflet, even after an on-demand load attempt.",
           );
           resolve(undefined);
         }
@@ -570,7 +660,7 @@ class VisitHeatmapCard extends LitElement {
         <b>visit-heatmap debug</b><br />
         config entities: ${this._entities.join(", ") || "none"}<br />
         rows: ${rows} · layers: ${layers} · paths: ${paths}<br />
-        ha-map element: ${haMapDefined ? "defined" : "NOT loaded (add a Map card to load it)"} ·
+        ha-map element: ${haMapDefined ? "defined" : "NOT loaded yet (auto-loading on demand)"} ·
         leaflet: ${this._debug.leafletState}<br />
         hass: ${this.hass ? "yes" : "no"} · connection: ${this.hass?.connection ? "yes" : "no"}<br />
         ${this._backendDebug ? `backend: ${this._backendDebug}` : ""}
