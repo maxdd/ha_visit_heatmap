@@ -1,7 +1,7 @@
 {
   "domain": "visit_heatmap",
   "name": "Visit Heatmap",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "config_flow": true,
   "dependencies": ["history", "http", "frontend", "websocket_api"],
   "after_dependencies": ["lovelace"],

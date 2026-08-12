@@ -14,6 +14,7 @@ STORE_VERSION = 1
 STORE_FILE = "visit-heatmap.json"
 
 WS_POINTS = "visit_heatmap/points"
+WS_DEBUG = "visit_heatmap/debug"
 
 DOMAIN_NAME = "Visit Heatmap"
 CARD_URL = "/visit_heatmap/visit-heatmap-card.js"

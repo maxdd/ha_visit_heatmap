@@ -13,3 +13,6 @@ visit-heatmap.json
 # Editors
 .idea/
 .vscode/
+
+uv.lock
+docs/clear-ha-frontend-cache.txt

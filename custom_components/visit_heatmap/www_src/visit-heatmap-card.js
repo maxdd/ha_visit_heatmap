@@ -21,10 +21,16 @@ const COLOR_PALETTE = [
 ];
 
 const WS_POINTS = "visit_heatmap/points";
+const WS_DEBUG = "visit_heatmap/debug";
 const WS_HISTORY = "history/stream";
 
 function fireEvent(node, type, detail) {
   node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
+}
+
+function formatTs(ms) {
+  const d = new Date(ms);
+  return `${d.toLocaleTimeString()}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
 class VisitHeatmapCard extends LitElement {
@@ -53,6 +59,16 @@ class VisitHeatmapCard extends LitElement {
     this._mapL = undefined;
     this._zones = undefined;
     this._buildSeq = 0;
+    this._debugLines = [];
+    this._debug = { mapElements: {}, leafletState: "unknown" };
+    this._backendDebug = "";
+  }
+
+  _log(...args) {
+    if (!this._config?.debug) return;
+    const line = `[${formatTs(Date.now())}] ${args.join(" ")}`;
+    this._debugLines = [...this._debugLines.slice(-49), line];
+    console.debug("[visit-heatmap]", ...args);
   }
 
   setConfig(config) {
@@ -67,6 +83,7 @@ class VisitHeatmapCard extends LitElement {
     this._configEntities = this._parseEntities(config);
     this._updateMapEntities();
     this._scheduleRefetch();
+    this._log("setConfig", JSON.stringify({ ...config, entities: this._entities }));
   }
 
   _parseEntities(config) {
@@ -110,6 +127,7 @@ class VisitHeatmapCard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    this._log("connected, hass=", !!this.hass, "connection=", !!this.hass?.connection);
     this._fetchAll();
     this._timer = window.setInterval(() => this._fetchAll(), REFRESH_PERIOD_MS);
     document.addEventListener("visibilitychange", this._onVisibility);
@@ -117,6 +135,7 @@ class VisitHeatmapCard extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this._log("disconnected");
     window.clearInterval(this._timer);
     window.clearTimeout(this._refetchTimer);
     window.clearTimeout(this._verifyTimer);
@@ -133,6 +152,7 @@ class VisitHeatmapCard extends LitElement {
       this._zones = undefined;
       const oldHass = changedProps.get("hass");
       if (!oldHass || oldHass.connection !== this.hass.connection) {
+        this._log("hass connection changed, refetching");
         this._fetchAll();
       }
       if (this._config.show_all) {
@@ -166,10 +186,14 @@ class VisitHeatmapCard extends LitElement {
   }
 
   async _fetchVisits() {
-    if (!this._entities.length) return;
+    if (!this._entities.length) {
+      this._log("fetchVisits skipped, no entities");
+      return;
+    }
     try {
       const horizon = this._config.horizon ?? HORIZON_DEFAULT;
       const since = new Date(Date.now() - horizon * 86400e3).toISOString();
+      this._log("fetchVisits entities=", this._entities.join(","), "since=", since);
       const res = await this.hass.connection.sendMessagePromise({
         type: WS_POINTS,
         entities: this._entities,
@@ -177,9 +201,11 @@ class VisitHeatmapCard extends LitElement {
       });
       this._rows = res.rows || [];
       this._error = undefined;
+      this._log("fetchVisits ->", this._rows.length, "rows");
     } catch (err) {
       this._error = err.message || String(err);
       this._rows = [];
+      this._log("fetchVisits ERROR", this._error);
     }
     this._buildLayers();
   }
@@ -343,7 +369,17 @@ class VisitHeatmapCard extends LitElement {
       return;
     }
     const L = await this._resolveMapLeaflet();
-    if (!L || seq !== this._buildSeq) return;
+    if (!L || seq !== this._buildSeq) {
+      this._log(
+        "buildLayers aborted: L=",
+        !!L,
+        "stale=",
+        seq !== this._buildSeq,
+        "ha-map defined=",
+        !!customElements.get("ha-map"),
+      );
+      return;
+    }
     try {
       const layers = [];
       const showMoving = this._config.show_moving !== false;
@@ -422,9 +458,11 @@ class VisitHeatmapCard extends LitElement {
 
       if (seq !== this._buildSeq) return;
       this._layers = layers;
+      this._log("buildLayers ->", layers.length, "layers from", rows.length, "rows");
       this._verifyLayersInjected();
     } catch (err) {
       this._layers = [];
+      this._log("buildLayers ERROR", err);
       console.error("visit-heatmap: failed to build map layers", err);
     }
   }
@@ -432,10 +470,22 @@ class VisitHeatmapCard extends LitElement {
   _resolveMapLeaflet() {
     if (this._mapL) return Promise.resolve(this._mapL);
     const haMap = this.renderRoot?.querySelector("ha-map");
+    const haMapDefined = !!customElements.get("ha-map");
     if (haMap?.Leaflet) {
       this._mapL = haMap.Leaflet;
+      this._debug.leafletState = "resolved-from-ha-map";
+      this._log("leaflet resolved from ha-map", haMapDefined ? "(defined)" : "(NOT a registered element)");
       return Promise.resolve(this._mapL);
     }
+    this._debug.leafletState = haMapDefined ? "waiting-for-leaflet" : "ha-map-not-loaded";
+    this._log(
+      "leaflet unresolved: ha-map defined=",
+      haMapDefined,
+      "element in shadow=",
+      !!haMap,
+      "has Leaflet=",
+      !!haMap?.Leaflet,
+    );
     return new Promise((resolve) => {
       let tries = 0;
       const iv = window.setInterval(() => {
@@ -449,9 +499,15 @@ class VisitHeatmapCard extends LitElement {
         if (el?.Leaflet) {
           window.clearInterval(iv);
           this._mapL = el.Leaflet;
+          this._debug.leafletState = "resolved-after-wait";
+          this._log("leaflet resolved after", tries, "polls");
           resolve(this._mapL);
         } else if (tries >= 50) {
           window.clearInterval(iv);
+          this._debug.leafletState = "timeout";
+          this._log(
+            "leaflet TIMEOUT after 10s. Add a standard 'Map' card to any dashboard so HA loads the ha-map element.",
+          );
           resolve(undefined);
         }
       }, 200);
@@ -476,7 +532,7 @@ class VisitHeatmapCard extends LitElement {
     if (this._error) {
       return html`<ha-card><ha-alert alert-type="error"
           >Visit heatmap: ${this._error}</ha-alert
-        ></ha-card>`;
+        >${this._config.debug ? this._renderDebug() : nothing}</ha-card>`;
     }
     const config = this._config;
     return html`
@@ -494,9 +550,51 @@ class VisitHeatmapCard extends LitElement {
             interactive-zones
             render-passive
           ></ha-map>
+          ${config.debug ? this._renderDebug() : nothing}
         </div>
       </ha-card>
     `;
+  }
+
+  _renderDebug() {
+    const rows = this._rows.length;
+    const layers = (this._layers || []).length;
+    const paths = (this._paths || []).length;
+    const haMapDefined = !!customElements.get("ha-map");
+    return html`
+      <ha-alert
+        alert-type="info"
+        style="position:absolute;top:8px;left:8px;right:8px;z-index:1000;font-size:11px;line-height:1.5"
+        @click=${() => this._fetchDebug()}
+      >
+        <b>visit-heatmap debug</b><br />
+        config entities: ${this._entities.join(", ") || "none"}<br />
+        rows: ${rows} · layers: ${layers} · paths: ${paths}<br />
+        ha-map element: ${haMapDefined ? "defined" : "NOT loaded (add a Map card to load it)"} ·
+        leaflet: ${this._debug.leafletState}<br />
+        hass: ${this.hass ? "yes" : "no"} · connection: ${this.hass?.connection ? "yes" : "no"}<br />
+        ${this._backendDebug ? `backend: ${this._backendDebug}` : ""}
+        <details>
+          <summary>console log (click to fetch backend)</summary>
+          <pre style="max-height:200px;overflow:auto">${this._debugLines.join("\n") || "empty"}</pre>
+        </details>
+      </ha-alert>
+    `;
+  }
+
+  async _fetchDebug() {
+    if (!this.hass?.connection) return;
+    try {
+      const res = await this.hass.connection.sendMessagePromise({
+        type: WS_DEBUG,
+        entities: this._entities,
+      });
+      this._backendDebug = JSON.stringify(res.result || res);
+      this._log("debug backend:", this._backendDebug);
+    } catch (err) {
+      this._backendDebug = `ERROR: ${err.message || err}`;
+      this._log("debug fetch ERROR", err);
+    }
   }
 
   getCardSize() {
@@ -640,6 +738,10 @@ class VisitHeatmapCardEditor extends LitElement {
         <div>
           <ha-switch ?checked=${Boolean(c.exclude_zones)} @change=${this._onToggle("exclude_zones")}></ha-switch>
           <span>Exclude points inside zones</span>
+        </div>
+        <div>
+          <ha-switch ?checked=${Boolean(c.debug)} @change=${this._onToggle("debug")}></ha-switch>
+          <span>Debug overlay (console + diagnostics)</span>
         </div>
       </div>
     `;

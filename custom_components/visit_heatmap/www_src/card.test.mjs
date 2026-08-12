@@ -111,6 +111,23 @@ test("opacity and horizon follow the decay model", () => {
   assert.equal(el._withinHorizon(rows.d40), false);
 });
 
+test("debug config renders an overlay and logs to console", async () => {
+  const { dom, el } = makeCard();
+  el.hass.config = { components: [] };
+  dom.window.document.body.appendChild(el);
+  el.setConfig({ show_all: true, debug: true });
+  const now = Date.now();
+  el._rows = [
+    { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
+  ];
+  await el._buildLayers();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(el._debugLines.length > 0, "debug lines captured");
+  const overlay = el.shadowRoot.querySelector("ha-alert");
+  assert.ok(overlay, "debug overlay rendered");
+  el.remove();
+});
+
 test("_buildLayers downsamples rows beyond max_points", async () => {
   const { el } = makeCard();
   const now = Date.now();
