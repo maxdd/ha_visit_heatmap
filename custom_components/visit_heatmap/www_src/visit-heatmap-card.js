@@ -11,6 +11,7 @@ const DECAY_RATE_DEFAULT = 0.1;
 const HORIZON_DEFAULT = 30;
 const MAX_GAP_DEFAULT = 30;
 const MAX_DIST_DEFAULT = 1000;
+const MAX_POINTS_DEFAULT = 5000;
 const REFRESH_PERIOD_MS = 300000;
 const REFETCH_DEBOUNCE_MS = 1500;
 
@@ -50,6 +51,7 @@ class VisitHeatmapCard extends LitElement {
     this._stateSig = "";
     this._refetchTimer = undefined;
     this._mapL = undefined;
+    this._zones = undefined;
     this._buildSeq = 0;
   }
 
@@ -128,6 +130,7 @@ class VisitHeatmapCard extends LitElement {
 
   willUpdate(changedProps) {
     if (changedProps.has("hass") && this.hass) {
+      this._zones = undefined;
       const oldHass = changedProps.get("hass");
       if (!oldHass || oldHass.connection !== this.hass.connection) {
         this._fetchAll();
@@ -165,9 +168,12 @@ class VisitHeatmapCard extends LitElement {
   async _fetchVisits() {
     if (!this._entities.length) return;
     try {
+      const horizon = this._config.horizon ?? HORIZON_DEFAULT;
+      const since = new Date(Date.now() - horizon * 86400e3).toISOString();
       const res = await this.hass.connection.sendMessagePromise({
         type: WS_POINTS,
         entities: this._entities,
+        since,
       });
       this._rows = res.rows || [];
       this._error = undefined;
@@ -258,6 +264,7 @@ class VisitHeatmapCard extends LitElement {
   }
 
   _zoneGeometry() {
+    if (this._zones) return this._zones;
     const zones = [];
     for (const entity of Object.values(this.hass?.states || {})) {
       if (!entity.entity_id.startsWith("zone.")) continue;
@@ -270,6 +277,7 @@ class VisitHeatmapCard extends LitElement {
         radius: radius || 100,
       });
     }
+    this._zones = zones;
     return zones;
   }
 
@@ -323,7 +331,12 @@ class VisitHeatmapCard extends LitElement {
 
   async _buildLayers() {
     const seq = ++this._buildSeq;
-    const rows = this._rows;
+    const maxPoints = this._config.max_points ?? MAX_POINTS_DEFAULT;
+    let rows = this._rows;
+    if (rows.length > maxPoints) {
+      const step = Math.ceil(rows.length / maxPoints);
+      rows = rows.filter((_, i) => i % step === 0 || i === rows.length - 1);
+    }
     if (!rows.length) {
       this._layers = [];
       this._verifyLayersInjected();
@@ -615,6 +628,7 @@ class VisitHeatmapCardEditor extends LitElement {
         ${text("Horizon (days)", c.horizon ?? 30, this._onNumber("horizon"))}
         ${text("Max gap (min)", c.max_gap ?? 30, this._onNumber("max_gap"))}
         ${text("Max dist (m)", c.max_dist ?? 1000, this._onNumber("max_dist"))}
+        ${text("Max points (cap)", c.max_points ?? MAX_POINTS_DEFAULT, this._onNumber("max_points"))}
         <div>
           <ha-switch ?checked=${c.show_moving !== false} @change=${this._onToggle("show_moving")}></ha-switch>
           <span>Show moving points and journey lines</span>

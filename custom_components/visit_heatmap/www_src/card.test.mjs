@@ -111,6 +111,24 @@ test("opacity and horizon follow the decay model", () => {
   assert.equal(el._withinHorizon(rows.d40), false);
 });
 
+test("_buildLayers downsamples rows beyond max_points", async () => {
+  const { el } = makeCard();
+  const now = Date.now();
+  el._config.max_points = 100;
+  el._rows = Array.from({ length: 1000 }, (_, i) => ({
+    device: "device_tracker.phone",
+    lat: 52.35 + i / 100000,
+    lon: 4.9,
+    last_seen: iso(now - i * 60e3),
+    moving: false,
+  }));
+  await el._buildLayers();
+  // step = ceil(1000/100) = 10 -> 100 rows + the always-kept latest row.
+  assert.equal(el._layers.length, 101);
+  const seen = new Set(el._rows.map((r) => r.last_seen));
+  assert.ok(seen.has(iso(now)));
+});
+
 test("_hasStationaryBetween only splits journeys on stops that outlast max_gap", () => {
   const { el } = makeCard();
   const now = Date.now();

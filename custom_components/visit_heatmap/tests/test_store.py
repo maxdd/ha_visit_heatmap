@@ -29,6 +29,21 @@ def test_query_filters_by_device(store, tmp_path):
     assert st.query()  # no filter returns all
 
 
+def test_query_filters_by_since(store, tmp_path):
+    st = store.VisitStore(tmp_path / "v.json")
+    now = datetime(2026, 8, 6, 12, 0, 0, tzinfo=UTC)
+    st.add_fix("dt.a", 1.0, 1.0, now, 100.0, 2.0)
+    st.add_fix("dt.a", 2.0, 2.0, now - timedelta(days=40), 100.0, 2.0)
+    st.add_fix("dt.a", 3.0, 3.0, now - timedelta(days=90), 100.0, 2.0)
+
+    recent = st.query(["dt.a"], since=now - timedelta(days=30))
+    assert len(recent) == 1
+    assert recent[0]["lat"] == 1.0
+
+    # without since, everything within retention comes back
+    assert len(st.query(["dt.a"])) == 3
+
+
 def test_query_payload_shape_matches_ws_contract(store, tmp_path):
     st = store.VisitStore(tmp_path / "v.json")
     t = datetime(2026, 8, 6, 12, 0, 0, tzinfo=UTC)

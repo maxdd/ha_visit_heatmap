@@ -124,12 +124,18 @@ class VisitStore:
         self.rows = prune(self.rows, retention_days, now)
         return len(self.rows) != before
 
-    def query(self, entity_ids: list[str] | None = None) -> list[dict]:
-        """Return rows as JSON-safe dicts, optionally filtered by device."""
+    def query(
+        self,
+        entity_ids: list[str] | None = None,
+        since: datetime | None = None,
+    ) -> list[dict]:
+        """Return rows as JSON-safe dicts, optionally filtered by device and age."""
         rows = self.rows
         if entity_ids:
             wanted = set(entity_ids)
             rows = [row for row in rows if row["device"] in wanted]
+        if since is not None:
+            rows = [row for row in rows if row["last_seen"] >= since]
         return [
             {
                 "device": row["device"],

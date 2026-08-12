@@ -62,6 +62,7 @@ sys.modules["voluptuous"] = _mod(
 _util_dt = _mod(
     "homeassistant.util.dt",
     utcnow=lambda: datetime.now(UTC),
+    parse_datetime=lambda s: datetime.fromisoformat(s.replace("Z", "+00:00")),
 )
 sys.modules["homeassistant"] = _mod("homeassistant")
 sys.modules["homeassistant.const"] = _mod(
