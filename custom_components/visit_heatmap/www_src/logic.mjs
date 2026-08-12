@@ -42,7 +42,10 @@ export function parseEntities(config, states, entityRegistry) {
   );
 }
 
-export function journeySegments(points, { maxGapMs, maxDistM, hasStationaryBetween }) {
+export function journeySegments(
+  points,
+  { maxGapMs, maxDistM, hasStationaryBetween, atLeastOneMoving },
+) {
   const segments = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
@@ -53,6 +56,7 @@ export function journeySegments(points, { maxGapMs, maxDistM, hasStationaryBetwe
       maxDistM != null &&
       haversineM(a.lat, a.lon, b.lat, b.lon) <= maxDistM;
     if (!connectedByTime && !connectedByDistance) continue;
+    if (atLeastOneMoving && !a.moving && !b.moving) continue;
     if (hasStationaryBetween && hasStationaryBetween(a, b)) continue;
     segments.push({ a, b });
   }

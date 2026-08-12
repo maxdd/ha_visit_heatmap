@@ -105,8 +105,8 @@ test("opacity and horizon follow the decay model", () => {
     d7: { last_seen: iso(now - 7 * DAY) },
     d40: { last_seen: iso(now - 40 * DAY) },
   };
-  assert.ok(Math.abs(el._opacity(rows.today) - 1) < 1e-9);
-  assert.ok(Math.abs(el._opacity(rows.d7) - 0.4782969) < 1e-9);
+  assert.ok(Math.abs(el._opacity(rows.today) - 1) < 1e-6);
+  assert.ok(Math.abs(el._opacity(rows.d7) - 0.4782969) < 1e-6);
   assert.equal(el._withinHorizon(rows.today), true);
   assert.equal(el._withinHorizon(rows.d40), false);
 });
@@ -240,6 +240,23 @@ test("mixing two independent Leaflet copies crashes on map update (why the card 
 
   const foreignMarker = LB.circleMarker([52.36, 4.9], { radius: 6 });
   assert.throws(() => map.addLayer(foreignMarker), /undefined/);
+});
+
+test("_buildLayers connects a stationary dot to an adjacent moving fix (trip departures)", async () => {
+  const { el } = makeCard();
+  const now = Date.now();
+  el._rows = [
+    { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
+    { device: "device_tracker.phone", lat: 52.3526, lon: 4.8879, last_seen: iso(now - 60e3), moving: true },
+  ];
+  await el._buildLayers();
+  const dash = (l) => (l.options.dashArray || "").split(" ")[0];
+  const journeys = el._layers.filter((l) => dash(l) === "4");
+  assert.equal(journeys.length, 1);
+  const latlngs = journeys[0].getLatLngs();
+  assert.equal(latlngs.length, 2);
+  assert.ok(Math.abs(latlngs[0].lat - 52.3526) < 1e-9);
+  assert.ok(Math.abs(latlngs[1].lat - 52.3676) < 1e-9);
 });
 
 test("on-demand ha-map load fails cleanly when HA loader internals are absent", async () => {

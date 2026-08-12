@@ -405,73 +405,77 @@ class VisitHeatmapCard extends LitElement {
       const excludeZones = Boolean(this._config.exclude_zones);
       const maxGapMs = (this._config.max_gap ?? MAX_GAP_DEFAULT) * 60e3;
       const maxDistM = this._config.max_dist ?? MAX_DIST_DEFAULT;
-      const movingByDevice = {};
+      const byDevice = {};
 
       for (const row of rows) {
         if (!this._withinHorizon(row)) continue;
         if (excludeZones && this._zoneNameFor(row.lat, row.lon)) continue;
-        const color = this._color(row.device);
-        if (row.moving) {
-          (movingByDevice[row.device] ||= []).push(row);
-          continue;
-        }
-        const opacity = this._opacity(row);
-        const marker = L.circleMarker([row.lat, row.lon], {
-          radius: 6,
-          color,
-          weight: 2,
-          fillColor: color,
-          fillOpacity: opacity,
-          opacity,
-        });
-        marker.bindTooltip(this._tooltip(row), { direction: "top" });
-        layers.push(marker);
+        (byDevice[row.device] ||= []).push(row);
       }
 
-      if (showMoving) {
-        for (const device of Object.keys(movingByDevice)) {
-          const pts = movingByDevice[device].sort(
-            (a, b) => Date.parse(a.last_seen) - Date.parse(b.last_seen)
+      for (const device of Object.keys(byDevice)) {
+        const pts = byDevice[device].sort(
+          (a, b) => Date.parse(a.last_seen) - Date.parse(b.last_seen)
+        );
+        const color = this._color(device);
+
+        for (const p of pts) {
+          if (p.moving) continue;
+          const opacity = this._opacity(p);
+          const marker = L.circleMarker([p.lat, p.lon], {
+            radius: 6,
+            color,
+            weight: 2,
+            fillColor: color,
+            fillOpacity: opacity,
+            opacity,
+          });
+          marker.bindTooltip(this._tooltip(p), { direction: "top" });
+          layers.push(marker);
+        }
+
+        if (!showMoving) continue;
+
+        for (const p of pts) {
+          if (!p.moving) continue;
+          const opacity = this._opacity(p);
+          if (opacity <= 0) continue;
+          const marker = L.circleMarker([p.lat, p.lon], {
+            radius: 3,
+            color,
+            weight: 1,
+            fillColor: color,
+            fillOpacity: opacity * 0.6,
+            opacity,
+            dashArray: "2 2",
+          });
+          marker.bindTooltip(this._tooltip(p), { direction: "top" });
+          layers.push(marker);
+        }
+
+        for (const { a, b } of journeySegments(pts, {
+          maxGapMs,
+          maxDistM,
+          hasStationaryBetween: (x, y) => this._hasStationaryBetween(device, x, y),
+          atLeastOneMoving: true,
+        })) {
+          const segOpacity = Math.max(this._opacity(a), this._opacity(b));
+          if (segOpacity <= 0) continue;
+          layers.push(
+            L.polyline(
+              [
+                [a.lat, a.lon],
+                [b.lat, b.lon],
+              ],
+              {
+                color,
+                weight: 2,
+                opacity: segOpacity,
+                dashArray: "4 6",
+                interactive: false,
+              }
+            )
           );
-          const color = this._color(device);
-          for (const p of pts) {
-            const opacity = this._opacity(p);
-            if (opacity <= 0) continue;
-            const marker = L.circleMarker([p.lat, p.lon], {
-              radius: 3,
-              color,
-              weight: 1,
-              fillColor: color,
-              fillOpacity: opacity * 0.6,
-              opacity,
-              dashArray: "2 2",
-            });
-            marker.bindTooltip(this._tooltip(p), { direction: "top" });
-            layers.push(marker);
-          }
-          for (const { a, b } of journeySegments(pts, {
-            maxGapMs,
-            maxDistM,
-            hasStationaryBetween: (x, y) => this._hasStationaryBetween(device, x, y),
-          })) {
-            const segOpacity = Math.max(this._opacity(a), this._opacity(b));
-            if (segOpacity <= 0) continue;
-            layers.push(
-              L.polyline(
-                [
-                  [a.lat, a.lon],
-                  [b.lat, b.lon],
-                ],
-                {
-                  color,
-                  weight: 2,
-                  opacity: segOpacity,
-                  dashArray: "4 6",
-                  interactive: false,
-                }
-              )
-            );
-          }
         }
       }
 
@@ -625,9 +629,16 @@ class VisitHeatmapCard extends LitElement {
         >${this._config.debug ? this._renderDebug() : nothing}</ha-card>`;
     }
     const config = this._config;
+    const maxWidth = config.max_width ? `${Number(config.max_width)}px` : "none";
     return html`
-      <ha-card id="card" .header=${config.title}>
-        <div id="root">
+      <ha-card
+        id="card"
+        .header=${config.title}
+        style=${maxWidth !== "none"
+          ? `max-width:${maxWidth};margin:0 auto;`
+          : nothing}
+      >
+        <div id="root" style=${config.aspect ? `--visit-heatmap-aspect:${config.aspect} / 1;` : nothing}>
           <ha-map
             .entities=${this._mapEntities}
             .layers=${this._layers || []}
@@ -694,7 +705,7 @@ class VisitHeatmapCard extends LitElement {
   getGridOptions() {
     return {
       columns: "full",
-      rows: 4,
+      rows: 8,
       min_columns: 6,
       min_rows: 2,
     };
@@ -712,8 +723,7 @@ class VisitHeatmapCard extends LitElement {
     :host {
       display: block;
       width: 100%;
-      max-width: var(--visit-heatmap-max-width, 960px);
-      margin: 0 auto;
+      height: 100%;
     }
     ha-card {
       overflow: hidden;
@@ -736,7 +746,7 @@ class VisitHeatmapCard extends LitElement {
     #root {
       position: relative;
       height: 100%;
-      padding-bottom: 100%;
+      aspect-ratio: var(--visit-heatmap-aspect, 1 / 1);
     }
   `;
 }
@@ -787,6 +797,17 @@ class VisitHeatmapCardEditor extends LitElement {
     };
   }
 
+  _onOptionalNumber(field) {
+    return (ev) => {
+      const value = parseFloat(ev.target.value);
+      if (ev.target.value.trim() === "") {
+        this._set(field, undefined);
+      } else if (Number.isFinite(value)) {
+        this._set(field, value);
+      }
+    };
+  }
+
   _onToggle(field) {
     return (ev) => this._set(field, ev.target.checked);
   }
@@ -817,6 +838,8 @@ class VisitHeatmapCardEditor extends LitElement {
         ${text("Max gap (min)", c.max_gap ?? 30, this._onNumber("max_gap"))}
         ${text("Max dist (m)", c.max_dist ?? 1000, this._onNumber("max_dist"))}
         ${text("Max points (cap)", c.max_points ?? MAX_POINTS_DEFAULT, this._onNumber("max_points"))}
+        ${text("Max width (px)", c.max_width ?? "", this._onOptionalNumber("max_width"))}
+        ${text("Aspect (width/height)", c.aspect ?? 1, this._onOptionalNumber("aspect"))}
         <div>
           <ha-switch ?checked=${c.show_moving !== false} @change=${this._onToggle("show_moving")}></ha-switch>
           <span>Show moving points and journey lines</span>

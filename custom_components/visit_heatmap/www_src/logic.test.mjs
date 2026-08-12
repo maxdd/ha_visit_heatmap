@@ -83,6 +83,24 @@ test("journeySegments: stationary-between suppresses the segment", () => {
   assert.equal(journeySegments(pts, { ...opts, hasStationaryBetween: () => false }).length, 1);
 });
 
+test("journeySegments: atLeastOneMoving connects a stationary dot to a moving fix", () => {
+  const parked = { ...mk(BASE - 120_000, 52.0, 4.0), moving: false };
+  const moving = mk(BASE - 60_000, 52.2, 4.2);
+  const opts = { maxGapMs: 30 * 60e3, atLeastOneMoving: true };
+  const segs = journeySegments([parked, moving], opts);
+  assert.equal(segs.length, 1);
+  assert.equal(segs[0].a, parked);
+  assert.equal(segs[0].b, moving);
+});
+
+test("journeySegments: atLeastOneMoving skips segments between two stationary points", () => {
+  const parkedA = { ...mk(BASE - 120_000, 52.0, 4.0), moving: false };
+  const parkedB = { ...mk(BASE - 60_000, 52.2, 4.2), moving: false };
+  const opts = { maxGapMs: 30 * 60e3 };
+  assert.equal(journeySegments([parkedA, parkedB], opts).length, 1);
+  assert.equal(journeySegments([parkedA, parkedB], { ...opts, atLeastOneMoving: true }).length, 0);
+});
+
 test("parseEntities: show_all keeps GPS device_trackers only, not hidden", () => {
   const states = {
     "device_tracker.phone": { entity_id: "device_tracker.phone", attributes: { latitude: 1, longitude: 2 } },
