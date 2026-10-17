@@ -62,3 +62,31 @@ export function journeySegments(
   }
   return segments;
 }
+
+/**
+ * Numeric width/height ratio from the stock map card's `aspect_ratio` key
+ * (`"16:9"`, `"16/9"` or a plain number like `1.5`). Returns undefined for
+ * absent or invalid values so the caller can fall back to its own default.
+ */
+export function parseAspectRatio(aspect) {
+  if (aspect == null || aspect === "") return undefined;
+  const text = String(aspect).trim();
+  const match = /^(\d+(?:\.\d+)?)\s*[:/x]\s*(\d+(?:\.\d+)?)$/.exec(text);
+  const ratio = match ? Number(match[1]) / Number(match[2]) : Number(text);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : undefined;
+}
+
+/**
+ * Opacity for point `index` of a trail of `count` points, ramping from the
+ * oldest point to full opacity - the visual the stock map card gives its
+ * history trails. Without `gradualOpacity` (or for a single point) the opacity
+ * is 1, except that a lone point shows the faded base.
+ */
+export function gradientOpacity(index, count, gradualOpacity) {
+  if (!gradualOpacity) return 1;
+  const base = 1 - gradualOpacity;
+  if (count <= 1) return Math.max(0, base);
+  if (count === 2) return index === 0 ? Math.max(0, base) : 1;
+  const step = gradualOpacity / (count - 2);
+  return Math.min(1, base + index * step);
+}

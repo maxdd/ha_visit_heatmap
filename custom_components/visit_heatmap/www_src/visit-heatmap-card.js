@@ -1,10 +1,18 @@
-import { LitElement, html, css, nothing } from "lit";
+import { LitElement, html, css, nothing, unsafeCSS } from "lit";
+// Default import: markercluster is a CommonJS plugin that augments this very
+// module object, which a namespace copy of the import would not see.
+import L from "leaflet";
+import "leaflet.markercluster";
+import leafletCss from "leaflet/dist/leaflet.css";
+import markerClusterCss from "leaflet.markercluster/dist/MarkerCluster.css";
 import {
   haversineM,
   decayOpacity,
   withinHorizon,
   parseEntities,
   journeySegments,
+  parseAspectRatio,
+  gradientOpacity,
 } from "./logic.mjs";
 
 const DECAY_RATE_DEFAULT = 0.1;
@@ -14,6 +22,34 @@ const MAX_DIST_DEFAULT = 1000;
 const MAX_POINTS_DEFAULT = 5000;
 const REFRESH_PERIOD_MS = 300000;
 const REFETCH_DEBOUNCE_MS = 1500;
+const PROGRAMMATIC_FIT_DELAY = 250;
+
+// The card owns its map. HA 2026.9 replaced `ha-map`'s Leaflet internals with
+// a runtime-selected MapLibre/Leaflet engine and dropped the `layers` property
+// earlier versions of this card injected through, so the visit layer can no
+// longer ride on the stock element (see ADR-0008).
+const MAP_MIN_ZOOM = 1;
+const MAP_MAX_ZOOM = 20;
+const RASTER_MAX_NATIVE_ZOOM = 19;
+const HOME_LOCATION_FALLBACK = [52.3731339, 4.8903147];
+
+// Core's Map tiles proxy (HA >= 2026.9): no external tile requests, no API
+// keys. The token comes from the `map_tiles/access_token` WS command and also
+// rides in the query string, which is what an <img> tile request can carry.
+const MAP_TILES_PATH = "/api/map_tiles";
+const MAP_TILES_RASTER_URL = `${MAP_TILES_PATH}/raster/{z}/{x}/{y}.png?token={token}`;
+const TOKEN_REFRESH_MS = 20 * 60 * 1000;
+const TILE_RECOVERY_THROTTLE_MS = 30000;
+const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+// Fallback for Home Assistant versions before the Map tiles integration. This
+// is the same raster source the stock map itself fell back to, including the
+// same caveat: the provider now paints an API-key notice over its tiles.
+const CARTO_TILE_URL =
+  "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+const CARTO_ATTRIBUTION = `${OSM_ATTRIBUTION} &copy; <a href="https://carto.com/attributions">CARTO</a>`;
+const CARTO_SUBDOMAINS = "abcd";
 
 const COLOR_PALETTE = [
   "#1976d2", "#d32f2f", "#fbc02d", "#388e3c", "#8e24aa", "#00796b",
@@ -23,6 +59,10 @@ const COLOR_PALETTE = [
 const WS_POINTS = "visit_heatmap/points";
 const WS_DEBUG = "visit_heatmap/debug";
 const WS_HISTORY = "history/stream";
+const WS_MAP_TILES_TOKEN = "map_tiles/access_token";
+
+const DEFAULT_ENTITY_ICON = "mdi:crosshairs-gps";
+const DEFAULT_ZONE_ICON = "mdi:map-marker";
 
 function fireEvent(node, type, detail) {
   node.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
@@ -33,23 +73,22 @@ function formatTs(ms) {
   return `${d.toLocaleTimeString()}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
-function withTimeout(promise, ms, label) {
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(
-      () => reject(new Error(`Timed out after ${ms}ms waiting for ${label}`)),
-      ms,
-    );
-    Promise.resolve(promise).then(
-      (value) => {
-        window.clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        window.clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+// Canvas is much faster for the many small visit circles; without a 2d context
+// (e.g. jsdom tests) Leaflet's SVG renderer still draws them.
+function prefersCanvas() {
+  try {
+    return Boolean(document.createElement("canvas").getContext("2d"));
+  } catch {
+    return false;
+  }
 }
 
 class VisitHeatmapCard extends LitElement {
@@ -65,7 +104,6 @@ class VisitHeatmapCard extends LitElement {
     super();
     this._config = {};
     this._configEntities = [];
-    this._mapEntities = [];
     this._colors = new Map();
     this._layers = [];
     this._paths = undefined;
@@ -75,12 +113,27 @@ class VisitHeatmapCard extends LitElement {
     this._timer = undefined;
     this._stateSig = "";
     this._refetchTimer = undefined;
-    this._mapL = undefined;
     this._zones = undefined;
-    this._buildSeq = 0;
     this._debugLines = [];
-    this._debug = { mapElements: {}, leafletState: "unknown" };
+    this._debug = {};
     this._backendDebug = "";
+
+    this._configDirty = false;
+    this._map = undefined;
+    this._tileLayer = undefined;
+    this._tileSource = undefined;
+    this._tileTokenTimer = undefined;
+    this._lastTileRecovery = 0;
+    this._entitiesGroup = undefined;
+    this._entitiesSig = undefined;
+    this._zonesGroup = undefined;
+    this._zonesSig = undefined;
+    this._trailsGroup = undefined;
+    this._visitsGroup = undefined;
+    this._resizeObserver = undefined;
+    this._autoFitPaused = false;
+    this._programmaticFit = false;
+    this._pendingFit = undefined;
   }
 
   _log(...args) {
@@ -100,26 +153,14 @@ class VisitHeatmapCard extends LitElement {
     }
     this._config = { ...config };
     this._configEntities = this._parseEntities(config);
-    this._updateMapEntities();
+    this._configDirty = true;
+    this._autoFitPaused = false;
     this._scheduleRefetch();
     this._log("setConfig", JSON.stringify({ ...config, entities: this._entities }));
   }
 
   _parseEntities(config) {
     return parseEntities(config, this.hass?.states || {}, this.hass?.entities || {});
-  }
-
-  _updateMapEntities() {
-    const mapEntities = [];
-    for (const e of this._configEntities) {
-      mapEntities.push({
-        entity_id: e.entity,
-        color: e.color || this._color(e.entity),
-        label_mode: e.label_mode,
-      });
-    }
-    const zones = this._zoneEntities();
-    this._mapEntities = [...mapEntities, ...zones];
   }
 
   _zoneEntities() {
@@ -150,6 +191,11 @@ class VisitHeatmapCard extends LitElement {
     this._fetchAll();
     this._timer = window.setInterval(() => this._fetchAll(), REFRESH_PERIOD_MS);
     document.addEventListener("visibilitychange", this._onVisibility);
+    // Re-inserting an already rendered element does not schedule an update,
+    // but its map was torn down on disconnect and has to be rebuilt.
+    if (this.hasUpdated && !this._map) {
+      this._remountMap();
+    }
   }
 
   disconnectedCallback() {
@@ -157,13 +203,35 @@ class VisitHeatmapCard extends LitElement {
     this._log("disconnected");
     window.clearInterval(this._timer);
     window.clearTimeout(this._refetchTimer);
-    window.clearTimeout(this._verifyTimer);
     document.removeEventListener("visibilitychange", this._onVisibility);
     this._unsubscribeHistory();
+    this._teardownMap();
+  }
+
+  _teardownMap() {
+    window.clearInterval(this._tileTokenTimer);
+    this._tileTokenTimer = undefined;
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = undefined;
+    this._map?.remove();
+    this._map = undefined;
+    this._tileLayer = undefined;
+    this._tileSource = undefined;
+    this._entitiesGroup = undefined;
+    this._zonesGroup = undefined;
+    this._trailsGroup = undefined;
+    this._visitsGroup = undefined;
+    this._entitiesSig = undefined;
+    this._zonesSig = undefined;
+    this._pendingFit = undefined;
   }
 
   _onVisibility = () => {
-    if (!document.hidden) this._scheduleRefetch();
+    if (!document.hidden) {
+      this._autoFitPaused = false;
+      this._map?.invalidateSize();
+      this._scheduleRefetch();
+    }
   };
 
   willUpdate(changedProps) {
@@ -177,7 +245,6 @@ class VisitHeatmapCard extends LitElement {
       if (this._config.show_all) {
         this._configEntities = this._parseEntities(this._config);
       }
-      this._updateMapEntities();
       const sig = this._entities
         .map((e) => `${e}:${this.hass.states?.[e]?.last_updated || ""}`)
         .join("|");
@@ -189,6 +256,56 @@ class VisitHeatmapCard extends LitElement {
         this._subscribeHistory();
       }
     }
+  }
+
+  updated(changedProps) {
+    const container = this.renderRoot?.querySelector("#map");
+    if (!this._map) {
+      this._remountMap();
+    } else if (this._map.getContainer() !== container) {
+      // The error card replaced the map DOM; drop the stale map and rebuild.
+      this._teardownMap();
+      this._remountMap();
+    }
+    if (!this._map) return;
+
+    if (this._configDirty) {
+      this._configDirty = false;
+      this._applyTheme();
+      this._renderEntitiesIfChanged(true);
+      this._renderZonesIfChanged(true);
+      this._renderTrails();
+      if (this._config.auto_fit) {
+        this._autoFitPaused = false;
+        this._fitToData();
+      } else {
+        this._map.setZoom(this._config.default_zoom ?? 14);
+      }
+    }
+
+    if (changedProps.has("hass")) {
+      this._applyTheme();
+      this._renderEntitiesIfChanged();
+      this._renderZonesIfChanged();
+    }
+
+    if (changedProps.has("_layers") || changedProps.has("_paths")) {
+      this._renderVisits();
+      this._renderTrails();
+    }
+  }
+
+  _remountMap() {
+    if (!this.isConnected) return;
+    this._createMap();
+    if (!this._map) return;
+    this._configDirty = false;
+    this._applyTheme();
+    this._renderEntitiesIfChanged(true);
+    this._renderZonesIfChanged(true);
+    this._renderTrails();
+    this._renderVisits();
+    if (this._config.debug) this.requestUpdate();
   }
 
   _scheduleRefetch() {
@@ -355,8 +472,11 @@ class VisitHeatmapCard extends LitElement {
 
   _tooltip(row) {
     const zone = this._zoneNameFor(row.lat, row.lon);
-    const parts = [this._entityName(row.device), `Last seen ${this._formatTime(row)}`];
-    if (zone) parts.push(`Zone: ${zone}`);
+    const parts = [
+      escapeHtml(this._entityName(row.device)),
+      escapeHtml(`Last seen ${this._formatTime(row)}`),
+    ];
+    if (zone) parts.push(escapeHtml(`Zone: ${zone}`));
     return parts.join("<br>");
   }
 
@@ -374,8 +494,7 @@ class VisitHeatmapCard extends LitElement {
     );
   }
 
-  async _buildLayers() {
-    const seq = ++this._buildSeq;
+  _buildLayers() {
     const maxPoints = this._config.max_points ?? MAX_POINTS_DEFAULT;
     let rows = this._rows;
     if (rows.length > maxPoints) {
@@ -384,19 +503,6 @@ class VisitHeatmapCard extends LitElement {
     }
     if (!rows.length) {
       this._layers = [];
-      this._verifyLayersInjected();
-      return;
-    }
-    const L = await this._resolveMapLeaflet();
-    if (!L || seq !== this._buildSeq) {
-      this._log(
-        "buildLayers aborted: L=",
-        !!L,
-        "stale=",
-        seq !== this._buildSeq,
-        "ha-map defined=",
-        !!customElements.get("ha-map"),
-      );
       return;
     }
     try {
@@ -479,10 +585,8 @@ class VisitHeatmapCard extends LitElement {
         }
       }
 
-      if (seq !== this._buildSeq) return;
       this._layers = layers;
       this._log("buildLayers ->", layers.length, "layers from", rows.length, "rows");
-      this._verifyLayersInjected();
     } catch (err) {
       this._layers = [];
       this._log("buildLayers ERROR", err);
@@ -490,137 +594,456 @@ class VisitHeatmapCard extends LitElement {
     }
   }
 
-  async _resolveMapLeaflet() {
-    if (this._mapL) return this._mapL;
-    const haMap = () => this.renderRoot?.querySelector("ha-map");
-    const haMapDefined = () => !!customElements.get("ha-map");
+  // --- the map itself -------------------------------------------------------
 
-    // HA only registers the ha-map element when something lazy-loads and
-    // instantiates it (ha-panel-config's "general" route, or a Map card).
-    if (haMap()?.Leaflet) {
-      this._mapL = haMap().Leaflet;
-      this._debug.leafletState = "resolved-from-ha-map";
-      this._log(
-        "leaflet resolved from ha-map",
-        haMapDefined() ? "(defined)" : "(NOT a registered element)",
-      );
-      return this._mapL;
+  _createMap() {
+    const container = this.renderRoot?.querySelector("#map");
+    if (!container) return;
+
+    const map = L.map(container, {
+      minZoom: MAP_MIN_ZOOM,
+      maxZoom: MAP_MAX_ZOOM,
+      preferCanvas: prefersCanvas(),
+    });
+    map.attributionControl.setPrefix("");
+    map.on("zoomstart", () => {
+      if (!this._programmaticFit) this._autoFitPaused = true;
+    });
+    map.on("movestart", () => {
+      if (!this._programmaticFit) this._autoFitPaused = true;
+    });
+    this._map = map;
+
+    const home = [
+      this.hass?.config?.latitude ?? HOME_LOCATION_FALLBACK[0],
+      this.hass?.config?.longitude ?? HOME_LOCATION_FALLBACK[1],
+    ];
+    map.setView(home, this._config.default_zoom ?? 14);
+
+    this._setupTiles();
+
+    const root = this.renderRoot?.querySelector("#root");
+    if (typeof ResizeObserver !== "undefined") {
+      this._resizeObserver = new ResizeObserver(() => {
+        this._map?.invalidateSize();
+        this._runPendingFit();
+      });
+      if (root) this._resizeObserver.observe(root);
     }
-
-    this._debug.leafletState = haMapDefined() ? "waiting-for-leaflet" : "ha-map-not-loaded";
-    this._log(
-      "leaflet unresolved: ha-map defined=",
-      haMapDefined(),
-      "element in shadow=",
-      !!haMap(),
-      "has Leaflet=",
-      !!haMap()?.Leaflet,
-    );
-
-    if (!haMapDefined()) {
-      await this._ensureHaMapLoaded();
-    }
-
-    return this._waitForLeaflet();
   }
 
-  // Strategy ported from KipK/load-ha-components (MIT): HA lazy-imports
-  // ha-map via the config panel's "general" route, not its own chunk.
-  // https://github.com/KipK/load-ha-components
-  async _loadHaMap() {
-    const step = (p, label, ms = 15000) => withTimeout(p, ms, label);
-    await step(customElements.whenDefined("partial-panel-resolver"), "partial-panel-resolver");
-
-    const resolver = document.createElement("partial-panel-resolver");
-    const panels = { tmp: { url_path: "tmp", component_name: "config" } };
-    let routerOptions;
-    if (typeof resolver._getRoutes === "function") {
-      routerOptions = resolver._getRoutes(panels);
-    } else if (typeof resolver._updateRoutes === "function") {
-      resolver.hass = { panels };
-      const result = resolver._updateRoutes();
-      if (result && typeof result.then === "function") {
-        void Promise.resolve(result).catch(() => undefined);
-      }
-      routerOptions = resolver.routerOptions;
+  async _setupTiles() {
+    const token = await this._fetchMapTilesToken();
+    if (!this._map || this._tileLayer) return;
+    if (token) {
+      this._tileLayer = this._createMapTilesLayer(token);
+      this._tileSource = "map_tiles";
     } else {
-      throw new Error(
-        "partial-panel-resolver exposes neither _getRoutes() nor _updateRoutes()",
+      this._tileLayer = this._createCartoLayer();
+      this._tileSource = "carto";
+    }
+    this._tileLayer.addTo(this._map);
+    this._log("base layer:", this._tileSource);
+    if (this._config.debug) this.requestUpdate();
+  }
+
+  async _fetchMapTilesToken() {
+    if (!this.hass?.config?.components?.includes("map_tiles")) return undefined;
+    try {
+      const res = await this.hass.connection.sendMessagePromise({
+        type: WS_MAP_TILES_TOKEN,
+      });
+      return res?.token || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  _createMapTilesLayer(token) {
+    const layer = L.tileLayer(MAP_TILES_RASTER_URL, {
+      token,
+      attribution: OSM_ATTRIBUTION,
+      minZoom: MAP_MIN_ZOOM,
+      maxZoom: MAP_MAX_ZOOM,
+      maxNativeZoom: RASTER_MAX_NATIVE_ZOOM,
+    });
+    this._tileTokenTimer = window.setInterval(
+      () => this._refreshTileToken(layer),
+      TOKEN_REFRESH_MS
+    );
+    layer.on("tileerror", () => {
+      const now = Date.now();
+      if (now - this._lastTileRecovery < TILE_RECOVERY_THROTTLE_MS) return;
+      this._lastTileRecovery = now;
+      this._refreshTileToken(layer);
+    });
+    return layer;
+  }
+
+  async _refreshTileToken(layer) {
+    const token = await this._fetchMapTilesToken();
+    if (!token || !this._map || layer !== this._tileLayer) return;
+    if (layer.options.token !== token) {
+      layer.options.token = token;
+      layer.redraw();
+      this._log("map tiles token refreshed");
+    }
+  }
+
+  _createCartoLayer() {
+    return L.tileLayer(CARTO_TILE_URL, {
+      attribution: CARTO_ATTRIBUTION,
+      subdomains: CARTO_SUBDOMAINS,
+      minZoom: MAP_MIN_ZOOM,
+      maxZoom: MAP_MAX_ZOOM,
+    });
+  }
+
+  _applyTheme() {
+    const mode =
+      this._config.theme_mode || (this._config.dark_mode ? "dark" : "auto");
+    const dark =
+      mode === "dark" || (mode === "auto" && Boolean(this.hass?.themes?.darkMode));
+    this.renderRoot?.querySelector("#map")?.classList.toggle("dark", dark);
+  }
+
+  // --- entity markers, zones, trails, visits --------------------------------
+
+  _entityIcon(entity, state, color) {
+    const attributes = state.attributes || {};
+    const picture = attributes.entity_picture;
+    const icon = attributes.icon || DEFAULT_ENTITY_ICON;
+    const inner = picture
+      ? `<img src="${escapeHtml(picture)}" alt="">`
+      : `<ha-icon icon="${escapeHtml(icon)}"></ha-icon>`;
+    let label = "";
+    if (entity.label_mode === "name") {
+      label = `<div class="vh-marker-label">${escapeHtml(this._entityName(entity.entity))}</div>`;
+    } else if (entity.label_mode === "state") {
+      label = `<div class="vh-marker-label">${escapeHtml(state.state)}</div>`;
+    }
+    return L.divIcon({
+      className: "vh-div-icon",
+      html: `<div class="vh-entity-marker" style="--vh-entity-color:${color}">${inner}</div>${label}`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+    });
+  }
+
+  _zoneIcon(state, color) {
+    const icon = state.attributes?.icon || DEFAULT_ZONE_ICON;
+    return L.divIcon({
+      className: "vh-div-icon",
+      html: `<div class="vh-zone-marker" style="--vh-entity-color:${color}"><ha-icon icon="${escapeHtml(icon)}"></ha-icon></div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+  }
+
+  _entityTooltip(entityId) {
+    const state = this.hass?.states?.[entityId];
+    const name = escapeHtml(this._entityName(entityId));
+    const stateText = state?.state ? escapeHtml(state.state) : "";
+    return stateText ? `${name}<br>${stateText}` : name;
+  }
+
+  _entitiesSignature() {
+    const parts = [];
+    for (const entity of this._configEntities) {
+      const state = this.hass?.states?.[entity.entity];
+      if (!state) {
+        parts.push(`${entity.entity}:missing`);
+        continue;
+      }
+      const attributes = state.attributes || {};
+      parts.push(
+        [
+          entity.entity,
+          attributes.latitude ?? "",
+          attributes.longitude ?? "",
+          state.state,
+          attributes.entity_picture || attributes.icon || "",
+          entity.color || entity.label_mode || "",
+        ].join(",")
       );
     }
-    const route = routerOptions?.routes?.tmp;
-    if (typeof route?.load !== "function") {
-      throw new Error("partial-panel-resolver has no load() for the config panel");
-    }
-    await step(route.load.call(route), "config panel");
-
-    await step(customElements.whenDefined("ha-panel-config"), "ha-panel-config");
-    const configPanel = document.createElement("ha-panel-config");
-    const general = configPanel.routerOptions?.routes?.general;
-    if (typeof general?.load !== "function") {
-      throw new Error("ha-panel-config has no load() for the general route");
-    }
-    await step(general.load.call(general), "config/general route");
-
-    if (!customElements.get("ha-map")) {
-      throw new Error("ha-map still undefined after loading config/general");
-    }
-    this._log("ha-map loaded on demand through config/general");
+    return parts.join("|");
   }
 
-  _ensureHaMapLoaded() {
-    if (this._loadHaMapPromise) return this._loadHaMapPromise;
-    this._loadHaMapPromise = this._loadHaMap().catch((err) => {
-      this._debug.leafletState = "load-failed";
-      this._log("on-demand ha-map load FAILED:", err?.message || err);
-      console.error("visit-heatmap: failed to load ha-map on demand", err);
+  _renderEntitiesIfChanged(force = false) {
+    const sig = this._entitiesSignature();
+    if (!force && sig === this._entitiesSig) return;
+    this._entitiesSig = sig;
+    this._renderEntities();
+  }
+
+  _renderEntities() {
+    if (!this._map) return;
+    if (this._entitiesGroup) {
+      this._map.removeLayer(this._entitiesGroup);
+      this._entitiesGroup = undefined;
+    }
+
+    const cluster = this._config.cluster !== false;
+    const group = cluster
+      ? L.markerClusterGroup({
+          showCoverageOnHover: false,
+          maxClusterRadius: 40,
+          iconCreateFunction: (c) => this._clusterIcon(c),
+        })
+      : L.layerGroup();
+
+    for (const entity of this._configEntities) {
+      const state = this.hass?.states?.[entity.entity];
+      const attributes = state?.attributes || {};
+      if (
+        !state ||
+        attributes.latitude == null ||
+        attributes.longitude == null
+      ) {
+        continue;
+      }
+      const color = entity.color || this._color(entity.entity);
+      const marker = L.marker([attributes.latitude, attributes.longitude], {
+        icon: this._entityIcon(entity, state, color),
+        title: this._entityName(entity.entity),
+      });
+      marker.bindTooltip(this._entityTooltip(entity.entity), {
+        direction: "top",
+      });
+      marker.on("click", () =>
+        fireEvent(this, "hass-more-info", { entityId: entity.entity })
+      );
+      group.addLayer(marker);
+    }
+
+    group.addTo(this._map);
+    this._entitiesGroup = group;
+    this._maybeAutoFit();
+  }
+
+  _clusterIcon(cluster) {
+    const count = cluster.getChildCount();
+    const size = count < 10 ? 36 : count < 100 ? 42 : 48;
+    return L.divIcon({
+      className: "vh-div-icon",
+      html: `<div class="vh-cluster">${count}</div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
     });
-    return this._loadHaMapPromise;
   }
 
-  _waitForLeaflet() {
-    if (this._mapL) return Promise.resolve(this._mapL);
-    return new Promise((resolve) => {
-      let tries = 0;
-      const iv = window.setInterval(() => {
-        if (!this.isConnected) {
-          window.clearInterval(iv);
-          resolve(undefined);
-          return;
-        }
-        tries++;
-        const el = this.renderRoot?.querySelector("ha-map");
-        if (el?.Leaflet) {
-          window.clearInterval(iv);
-          this._mapL = el.Leaflet;
-          this._debug.leafletState = "resolved-after-wait";
-          this._log("leaflet resolved after", tries, "polls");
-          resolve(this._mapL);
-        } else if (tries >= 50) {
-          window.clearInterval(iv);
-          this._debug.leafletState = "timeout";
-          this._log(
-            "leaflet TIMEOUT after 10s: ha-map never exposed Leaflet, even after an on-demand load attempt.",
+  _zonesSignature() {
+    return this._zoneEntities()
+      .map((zone) => {
+        const state = this.hass?.states?.[zone.entity_id];
+        const attributes = state?.attributes || {};
+        return `${zone.entity_id},${attributes.latitude ?? ""},${attributes.longitude ?? ""},${attributes.radius ?? ""},${attributes.icon || ""}`;
+      })
+      .join("|");
+  }
+
+  _renderZonesIfChanged(force = false) {
+    const sig = this._zonesSignature();
+    if (!force && sig === this._zonesSig) return;
+    this._zonesSig = sig;
+    this._renderZones();
+  }
+
+  _renderZones() {
+    if (!this._map) return;
+    if (this._zonesGroup) {
+      this._map.removeLayer(this._zonesGroup);
+      this._zonesGroup = undefined;
+    }
+
+    const group = L.layerGroup();
+    for (const zone of this._zoneEntities()) {
+      const state = this.hass?.states?.[zone.entity_id];
+      const attributes = state?.attributes || {};
+      if (
+        !state ||
+        attributes.latitude == null ||
+        attributes.longitude == null
+      ) {
+        continue;
+      }
+      const color = zone.color;
+      if (attributes.radius) {
+        group.addLayer(
+          L.circle([attributes.latitude, attributes.longitude], {
+            radius: attributes.radius,
+            color,
+            weight: 1.5,
+            fillColor: color,
+            fillOpacity: 0.1,
+            interactive: false,
+          })
+        );
+      }
+      const marker = L.marker([attributes.latitude, attributes.longitude], {
+        icon: this._zoneIcon(state, color),
+        title: this._entityName(zone.entity_id),
+      });
+      marker.bindTooltip(this._entityName(zone.entity_id), {
+        direction: "top",
+      });
+      marker.on("click", () =>
+        fireEvent(this, "hass-more-info", { entityId: zone.entity_id })
+      );
+      group.addLayer(marker);
+    }
+
+    group.addTo(this._map);
+    this._zonesGroup = group;
+  }
+
+  _renderTrails() {
+    if (!this._map) return;
+    if (this._trailsGroup) {
+      this._map.removeLayer(this._trailsGroup);
+      this._trailsGroup = undefined;
+    }
+
+    const group = L.layerGroup();
+    for (const path of this._paths || []) {
+      const count = path.points.length;
+      for (let index = 0; index < count; index++) {
+        const point = path.points[index];
+        const opacity = gradientOpacity(index, count, path.gradualOpacity);
+        const marker = L.circleMarker(point.point, {
+          radius: 3,
+          color: path.color,
+          opacity,
+          fillColor: path.color,
+          fillOpacity: opacity,
+        });
+        marker.bindTooltip(this._trailTooltip(path, point), {
+          direction: "top",
+        });
+        group.addLayer(marker);
+        if (index < count - 1) {
+          group.addLayer(
+            L.polyline([point.point, path.points[index + 1].point], {
+              color: path.color,
+              opacity,
+              interactive: false,
+            })
           );
-          resolve(undefined);
-        }
-      }, 200);
-    });
-  }
-
-  _verifyLayersInjected() {
-    if (this._verifyTimer) return;
-    this._verifyTimer = window.setTimeout(() => {
-      this._verifyTimer = undefined;
-      const map = this.renderRoot?.querySelector("ha-map")?.leafletMap;
-      if (!map || !this._layers) return;
-      for (const layer of this._layers) {
-        if (!map.hasLayer(layer)) {
-          console.warn("visit-heatmap: layer was not injected into ha-map", layer);
         }
       }
-    }, 500);
+    }
+
+    group.addTo(this._map);
+    this._trailsGroup = group;
   }
+
+  _trailTooltip(path, point) {
+    const time = this._formatTime({
+      last_seen: new Date(point.timestamp).toISOString(),
+    });
+    return `${escapeHtml(path.name ?? "")}<br>${escapeHtml(time)}`;
+  }
+
+  _renderVisits() {
+    if (!this._map) return;
+    if (this._visitsGroup) {
+      this._map.removeLayer(this._visitsGroup);
+    }
+    this._visitsGroup = L.layerGroup(this._layers || []).addTo(this._map);
+    this._maybeAutoFit();
+  }
+
+  // --- view: zoom, center, auto-fit ----------------------------------------
+
+  _maybeAutoFit(force = false) {
+    if (!this._map || !this._config.auto_fit) return;
+    if (this._autoFitPaused && !force) return;
+    this._fitToData();
+  }
+
+  _fitToData() {
+    if (!this._map) return;
+    if (this._deferIfUnsized(() => this._fitToData())) return;
+
+    const bounds = L.latLngBounds([]);
+
+    for (const entity of this._configEntities) {
+      const attributes = this.hass?.states?.[entity.entity]?.attributes || {};
+      if (attributes.latitude != null && attributes.longitude != null) {
+        bounds.extend([attributes.latitude, attributes.longitude]);
+      }
+    }
+
+    for (const layer of this._layers || []) {
+      if (typeof layer.getLatLng === "function") {
+        bounds.extend(layer.getLatLng());
+      } else if (typeof layer.getBounds === "function") {
+        bounds.extend(layer.getBounds());
+      }
+    }
+
+    if (this._config.fit_zones) {
+      for (const zone of this._zoneGeometry()) {
+        bounds.extend(L.latLng(zone.lat, zone.lon).toBounds(zone.radius));
+      }
+    }
+
+    const zoom = this._config.default_zoom ?? 14;
+    if (!bounds.isValid()) {
+      this._setHomeView(zoom);
+      return;
+    }
+
+    this._programmaticFit = true;
+    this._map.fitBounds(bounds.pad(0.5), { maxZoom: zoom });
+    window.setTimeout(() => {
+      this._programmaticFit = false;
+    }, PROGRAMMATIC_FIT_DELAY);
+  }
+
+  _setHomeView(zoom) {
+    const home = [
+      this.hass?.config?.latitude ?? HOME_LOCATION_FALLBACK[0],
+      this.hass?.config?.longitude ?? HOME_LOCATION_FALLBACK[1],
+    ];
+    this._programmaticFit = true;
+    this._map.setView(home, zoom);
+    window.setTimeout(() => {
+      this._programmaticFit = false;
+    }, PROGRAMMATIC_FIT_DELAY);
+  }
+
+  // Leaflet derives the zoom that fits bounds from the container's size; a
+  // container that is still 0x0 (e.g. a hidden dashboard tab) collapses the
+  // fit to the world zoom, so defer until the resize observer reports a size.
+  _deferIfUnsized(fit) {
+    const size = this._map.getSize();
+    if (size.x > 0 && size.y > 0) {
+      this._pendingFit = undefined;
+      return false;
+    }
+    const container = this._map.getContainer();
+    if (container.clientWidth > 0 && container.clientHeight > 0) {
+      this._map.invalidateSize();
+      this._pendingFit = undefined;
+      return false;
+    }
+    this._pendingFit = fit;
+    return true;
+  }
+
+  _runPendingFit() {
+    if (!this._pendingFit || !this._map) return;
+    const size = this._map.getSize();
+    if (size.x > 0 && size.y > 0) {
+      const pending = this._pendingFit;
+      this._pendingFit = undefined;
+      pending();
+    }
+  }
+
+  // --- rendering ------------------------------------------------------------
 
   render() {
     if (this._error) {
@@ -630,6 +1053,7 @@ class VisitHeatmapCard extends LitElement {
     }
     const config = this._config;
     const maxWidth = config.max_width ? `${Number(config.max_width)}px` : "none";
+    const aspect = config.aspect ?? parseAspectRatio(config.aspect_ratio);
     return html`
       <ha-card
         id="card"
@@ -638,19 +1062,11 @@ class VisitHeatmapCard extends LitElement {
           ? `max-width:${maxWidth};margin:0 auto;`
           : nothing}
       >
-        <div id="root" style=${config.aspect ? `--visit-heatmap-aspect:${config.aspect} / 1;` : nothing}>
-          <ha-map
-            .entities=${this._mapEntities}
-            .layers=${this._layers || []}
-            .paths=${this._paths || []}
-            .zoom=${config.default_zoom ?? 14}
-            .autoFit=${Boolean(config.auto_fit)}
-            .fitZones=${Boolean(config.fit_zones)}
-            .themeMode=${config.theme_mode || (config.dark_mode ? "dark" : "auto")}
-            .clusterMarkers=${config.cluster !== false}
-            interactive-zones
-            render-passive
-          ></ha-map>
+        <div
+          id="root"
+          style=${aspect ? `--visit-heatmap-aspect:${aspect} / 1;` : nothing}
+        >
+          <div id="map"></div>
           ${config.debug ? this._renderDebug() : nothing}
         </div>
       </ha-card>
@@ -661,7 +1077,6 @@ class VisitHeatmapCard extends LitElement {
     const rows = this._rows.length;
     const layers = (this._layers || []).length;
     const paths = (this._paths || []).length;
-    const haMapDefined = !!customElements.get("ha-map");
     return html`
       <ha-alert
         alert-type="info"
@@ -671,8 +1086,8 @@ class VisitHeatmapCard extends LitElement {
         <b>visit-heatmap debug</b><br />
         config entities: ${this._entities.join(", ") || "none"}<br />
         rows: ${rows} · layers: ${layers} · paths: ${paths}<br />
-        ha-map element: ${haMapDefined ? "defined" : "NOT loaded yet (auto-loading on demand)"} ·
-        leaflet: ${this._debug.leafletState}<br />
+        map: ${this._map ? "mounted" : "not mounted"} ·
+        tiles: ${this._tileSource || "pending"}<br />
         hass: ${this.hass ? "yes" : "no"} · connection: ${this.hass?.connection ? "yes" : "no"}<br />
         ${this._backendDebug ? `backend: ${this._backendDebug}` : ""}
         <details>
@@ -720,6 +1135,8 @@ class VisitHeatmapCard extends LitElement {
   }
 
   static styles = css`
+    ${unsafeCSS(leafletCss)}
+    ${unsafeCSS(markerClusterCss)}
     :host {
       display: block;
       width: 100%;
@@ -732,21 +1149,88 @@ class VisitHeatmapCard extends LitElement {
       display: flex;
       flex-direction: column;
     }
-    ha-map {
-      z-index: 0;
-      border: none;
+    #root {
+      position: relative;
+      height: 100%;
+      aspect-ratio: var(--visit-heatmap-aspect, 1 / 1);
+    }
+    #map {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
+      z-index: 0;
+      border: none;
       border-radius: var(--ha-card-border-radius, var(--ha-border-radius-lg));
       overflow: hidden;
+      background: var(--card-background-color, #fff);
     }
-    #root {
-      position: relative;
+    /* Raster tiles have no dark cartography; the stock map inverts them in CSS. */
+    #map.dark .leaflet-tile-pane .leaflet-tile {
+      filter: invert(0.9) hue-rotate(170deg) brightness(1.5) contrast(1.2)
+        saturate(0.3);
+    }
+    .leaflet-container {
+      font-family: inherit;
+      background: var(--card-background-color, #fff);
+    }
+    .vh-div-icon {
+      background: none;
+      border: none;
+    }
+    .vh-entity-marker,
+    .vh-zone-marker {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      width: 100%;
       height: 100%;
-      aspect-ratio: var(--visit-heatmap-aspect, 1 / 1);
+      border-radius: 50%;
+      overflow: hidden;
+      background: var(--card-background-color, #fff);
+      border: 2px solid var(--vh-entity-color, var(--primary-color));
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    }
+    .vh-entity-marker img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .vh-entity-marker ha-icon,
+    .vh-zone-marker ha-icon {
+      --mdc-icon-size: 22px;
+      color: var(--vh-entity-color, var(--primary-color));
+    }
+    .vh-zone-marker {
+      border-width: 1.5px;
+      border-style: dashed;
+    }
+    .vh-marker-label {
+      margin-top: 2px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: var(--ha-font-size-xs, 11px);
+      text-align: center;
+      white-space: nowrap;
+      color: var(--primary-text-color);
+      background: var(--card-background-color, #fff);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+    .vh-cluster {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.7);
+      box-sizing: border-box;
+      color: #fff;
+      font-weight: 500;
+      background: var(--primary-color, #03a9f4);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     }
   `;
 }

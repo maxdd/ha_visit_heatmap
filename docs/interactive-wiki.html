@@ -221,8 +221,9 @@
     Every position a tracked device has visited is drawn on a map with an
     opacity proportional to recency: today is solid, each day it fades, and once
     a visit is older than a configurable <em>horizon</em> it disappears. A small
-    companion integration records the positions durably; a custom card reuses the
-    stock <code class="inline">ha-map</code> and <em>injects</em> the fading visit layer.
+    companion integration records the positions durably; a custom card renders its
+    own Leaflet map (base tiles through the core Map&nbsp;tiles proxy) and paints
+    the fading visit layer on it.
   </p>
   <div class="hint">Click any box in a flow diagram to see what it does. Open any <em>▸ code</em> block for the real source. Scroll through — each section links to the next.</div>
 
@@ -260,7 +261,8 @@
           <h4>Paint</h4>
           <p>The card turns each row into a <code class="inline">Leaflet.circleMarker</code>
           whose fill opacity is the day-fractioning decay of its last visit, injects those into a
-          stock <code class="inline">&lt;ha-map&gt;</code>/&nbsp;layers property — no reimplementation of Leaflet needed.</p>
+          card's own Leaflet map — the stock <code class="inline">ha-map</code> element no
+          longer accepts custom layers since HA&nbsp;2026.9 (ADR-0008).</p>
           <p class="muted">See <a href="#card-render">§13</a> and <a href="#decay">§15</a>.</p>
         </div>
       </div>
@@ -323,7 +325,7 @@
         <p><code class="inline">_buildLayers</code> creates a
         <code class="inline">circleMarker</code> per compatible residence point with opacity
         from the decay model, and dashed polylines between moving fixes. The stack of layers is
-        passed to <code class="inline">&lt;ha-map .layers&gt;</code>.</p>
+        added to the card's own Leaflet map (<code class="inline">_renderVisits</code>).</p>
       </div>
     </div>
   </section>
@@ -602,17 +604,18 @@
           device, last time, and zone name. No reverse geocoding in v1 (ADR-0004).</p>
       </div>
       <div class="fstep" data-on="*">
-        <h4>injection into ha-map</h4>
-        <p>The constructed array of Leaflet layers is bound to the stock
-        <code class="inline">&lt;ha-map&gt;</code>'s public <code class="inline">layers</code>
-        property via Lit. Leaflet is no longer bundled with the card: it is resolved at
-        runtime from the ha-map element (<code class="inline">el.Leaflet</code>, retried until
-        it mounts) and every layer is built with that exact copy — the card never mixes two
-        independent Leaflet copies, which would corrupt the shared SVG renderer's
-        <code class="inline">_empty</code> bookkeeping and crash on map moves.</p>
-        <p class="muted">A <code class="inline">_verifyLayersInjected</code> guard periodically
-        checks <code class="inline">map.hasLayer(layer)</code> and warns if any layer was
-        dropped.</p>
+        <h4>onto the card's own map</h4>
+        <p>Since HA&nbsp;2026.9 the stock <code class="inline">ha-map</code> element runs on a
+        runtime-selected MapLibre/Leaflet engine and no longer accepts custom layers
+        (<code class="inline">layers</code>, <code class="inline">leafletMap</code> and its
+        exposed <code class="inline">Leaflet</code> were removed), so the card owns its map:
+        it bundles Leaflet, gets base tiles from the core Map&nbsp;tiles proxy
+        (<code class="inline">/api/map_tiles/raster/…</code>, token over WebSocket), and
+        falls back to raster tiles on older Home Assistant versions (ADR-0008). Map and
+        layers share that one bundled Leaflet, so no dual-copy bookkeeping is possible.</p>
+        <p class="muted"><code class="inline">_renderVisits</code> swaps the visit
+        <code class="inline">LayerGroup</code> into the card's map; entity markers, zones
+        and trails are drawn by the card too.</p>
       </div>
       <div class="fstep" data-on="*">
         <h4>trails</h4>
@@ -789,10 +792,11 @@
       <tr><td>0001</td><td>New card + companion integration, not a GoogleFindMy-HA fork</td><td class="mono">adr/0001</td></tr>
       <tr><td>0002</td><td>Deduped raw fixes; moving recorded separately by speed</td><td class="mono">adr/0002</td></tr>
       <tr><td>0003</td><td>Continuous client-side decay; card owns decay_rate + horizon</td><td class="mono">adr/0003</td></tr>
-      <tr><td>0004</td><td>Thin hui-map clone reusing stock ha-map + injected layers</td><td class="mono">adr/0004</td></tr>
+      <tr><td>0004</td><td>Thin map-card clone; injected layers into stock ha-map (revised by 0008)</td><td class="mono">adr/0004</td></tr>
       <tr><td>0005</td><td>JSON store + WS command; card fetches on load/change/periodic</td><td class="mono">adr/0005</td></tr>
       <tr><td>0006</td><td>Single HACS repo, integration + card together</td><td class="mono">adr/0006</td></tr>
       <tr><td>0007</td><td>Backfill imports recorder history on first install</td><td class="mono">adr/0007</td></tr>
+      <tr><td>0008</td><td>Self-contained Leaflet map after HA 2026.9 removed ha-map layers</td><td class="mono">adr/0008</td></tr>
     </table>
   </section>
 
@@ -1108,7 +1112,7 @@ _buildLayers() {
     }
   }
   this._layers = layers;
-  this._verifyLayersInjected();   // warn if ha-map dropped any layer
+  // _renderVisits() adds these to the card's own Leaflet map
 }
 </script>
 
@@ -1257,7 +1261,7 @@ custom_components/visit_heatmap/
       { t: "Capture", s: "device_tracker state changes", env: "core" },
       { t: "Record", s: "classify + dedupe → JSON file", env: "integration" },
       { t: "Read", s: "visit_heatmap/points (WebSocket)", env: "integration" },
-      { t: "Paint", s: "layers injected into ha-map", env: "card" }
+      { t: "Paint", s: "layers added to the card's own map", env: "card" }
     ],
     "flow-pipeline": [
       { t: "1 · Tracker updates", s: "device_tracker.phone gets a new state", env: "core" },
@@ -1266,7 +1270,7 @@ custom_components/visit_heatmap/
       { t: "4 · add_fix", s: "dedupe (refresh) or append", env: "logic.py" },
       { t: "5 · debounced save", s: "atomic temp-file + os.replace", env: "store.py" },
       { t: "6 · WS read", s: "store.query for requested entities", env: "websocket.py" },
-      { t: "7 · build + paint", s: "_buildLayers → .layers → ha-map", env: "card.js" }
+      { t: "7 · build + paint", s: "_buildLayers → LayerGroup → card's map", env: "card.js" }
     ],
     "flow-classify": [
       { t: "prev fix + new fix", s: "per device, from _last_fix", env: "logic.py" },
@@ -1287,7 +1291,7 @@ custom_components/visit_heatmap/
     "flow-render": [
       { t: "_buildLayers", s: "stationary dots + moving markers", env: "card.js" },
       { t: "zones & tooltips", s: "exclude_zones, hover info", env: "card.js" },
-      { t: "inject into ha-map", s: ".layers + hasLayer guard", env: "card.js" },
+      { t: "add to card's map", s: "_renderVisits → LayerGroup", env: "card.js" },
       { t: "trails", s: "hours_to_show history stream", env: "card.js" }
     ]
   };

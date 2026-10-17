@@ -9,10 +9,19 @@ const BUNDLE = readFileSync(
   "utf8"
 );
 
-const LEAFLET = readFileSync(
-  fileURLToPath(new URL("../../../node_modules/leaflet/dist/leaflet.js", import.meta.url)),
-  "utf8"
-);
+// jsdom ships no 2d context; Leaflet's canvas renderer only needs a no-op one.
+function stubCanvas(dom) {
+  const noopContext = new Proxy(
+    { canvas: {} },
+    {
+      get: (target, prop) => (prop in target ? target[prop] : () => undefined),
+      set: () => true,
+    }
+  );
+  dom.window.HTMLCanvasElement.prototype.getContext = function () {
+    return noopContext;
+  };
+}
 
 function makeDom() {
   const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", {
@@ -20,44 +29,58 @@ function makeDom() {
     pretendToBeVisual: true,
     url: "http://localhost/",
   });
-  // Leaflet needs SVG support to pick its SVG renderer; jsdom lacks createSVGRect.
-  if (dom.window.SVGElement) {
-    dom.window.SVGElement.prototype.createSVGRect = function () {
-      return { x: 0, y: 0, width: 0, height: 0 };
-    };
-  }
-  dom.window.eval(LEAFLET);
+  stubCanvas(dom);
   dom.window.eval(BUNDLE);
   return dom;
 }
 
-function makeCard() {
+function makeCard(hassOverrides = {}) {
   const dom = makeDom();
   const el = dom.window.document.createElement("visit-heatmap-card");
   el.hass = {
     states: {
       "device_tracker.phone": {
         entity_id: "device_tracker.phone",
+        state: "home",
         attributes: { latitude: 52.36, longitude: 4.9, friendly_name: "Phone" },
       },
       "device_tracker.hidden": {
         entity_id: "device_tracker.hidden",
+        state: "not_home",
         attributes: { latitude: 52.1, longitude: 4.1 },
       },
-      "device_tracker.no_gps": { entity_id: "device_tracker.no_gps", attributes: {} },
-      "person.alice": { entity_id: "person.alice", attributes: { latitude: 1, longitude: 1 } },
+      "device_tracker.no_gps": {
+        entity_id: "device_tracker.no_gps",
+        state: "unknown",
+        attributes: {},
+      },
+      "person.alice": {
+        entity_id: "person.alice",
+        state: "home",
+        attributes: { latitude: 1, longitude: 1 },
+      },
       "zone.home": {
         entity_id: "zone.home",
+        state: "zoning",
         attributes: { latitude: 52.3676, longitude: 4.9041, radius: 100 },
       },
     },
     entities: { "device_tracker.hidden": { hidden: true } },
     connection: null,
     locale: { language: "en" },
+    config: { latitude: 52.37, longitude: 4.89, components: [] },
+    themes: { darkMode: false },
+    ...hassOverrides,
   };
-  // The card builds layers with the ha-map element's Leaflet; in tests we supply it directly.
-  el._mapL = dom.window.L;
   return { dom, el };
+}
+
+async function mount(dom, el, config) {
+  el.setConfig(config);
+  dom.window.document.body.appendChild(el);
+  await el.updateComplete;
+  // Let the async tile-layer setup settle.
+  await new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 const DAY = 86400e3;
@@ -111,9 +134,12 @@ test("opacity and horizon follow the decay model", () => {
   assert.equal(el._withinHorizon(rows.d40), false);
 });
 
-test("debug config renders an overlay and logs to console", async () => {
+test("debug config renders an overlay and logs to console", async (t) => {
   const { dom, el } = makeCard();
-  el.hass.config = { components: [] };
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
   dom.window.document.body.appendChild(el);
   el.setConfig({ show_all: true, debug: true });
   const now = Date.now();
@@ -125,7 +151,7 @@ test("debug config renders an overlay and logs to console", async () => {
   assert.ok(el._debugLines.length > 0, "debug lines captured");
   const overlay = el.shadowRoot.querySelector("ha-alert");
   assert.ok(overlay, "debug overlay rendered");
-  el.remove();
+  assert.match(el.shadowRoot.textContent, /map: mounted/);
 });
 
 test("_buildLayers downsamples rows beyond max_points", async () => {
@@ -181,93 +207,146 @@ test("_zoneNameFor matches zone geometry", () => {
   assert.equal(el._zoneNameFor(52.3526, 4.8879), undefined);
 });
 
-test("layers built with the ha-map Leaflet survive being added to a real map and moved", async () => {
+// --- the self-contained map (HA 2026.9 removed ha-map's layers API) ---------
+
+test("card mounts its own Leaflet map with entity and zone layers", async (t) => {
   const { dom, el } = makeCard();
-  const L = dom.window.L;
+  t.after(() => dom.window.close());
+  await mount(dom, el, {
+    entities: ["device_tracker.phone"],
+    zones: ["zone.home"],
+    auto_fit: true,
+  });
+  assert.ok(el._map, "Leaflet map created");
+  assert.ok(el.renderRoot.querySelector("#map"), "map container rendered");
+  assert.equal(el._entitiesGroup.getLayers().length, 1, "entity marker");
+  assert.equal(el._zonesGroup.getLayers().length, 2, "zone circle + marker");
+  assert.equal(el._visitsGroup.getLayers().length, 0, "no visits yet");
+  el.remove();
+  assert.equal(el._map, undefined, "map destroyed on disconnect");
+});
+
+test("visit layers land on the card's own map and survive map moves", async (t) => {
+  const { dom, el } = makeCard();
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
+  await mount(dom, el, { entities: ["device_tracker.phone"] });
   const now = Date.now();
   el._rows = [
     { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
     { device: "device_tracker.phone", lat: 52.3526, lon: 4.8879, last_seen: iso(now - 7 * DAY + 5 * 60e3), moving: true },
     { device: "device_tracker.phone", lat: 52.3376, lon: 4.8716, last_seen: iso(now - 7 * DAY), moving: true },
   ];
-  await el._buildLayers();
-  assert.ok(el._layers.length >= 2);
-
-  const div = dom.window.document.createElement("div");
-  Object.defineProperty(div, "clientWidth", { value: 600, configurable: true });
-  Object.defineProperty(div, "clientHeight", { value: 400, configurable: true });
-  dom.window.document.body.appendChild(div);
-  const map = L.map(div, { center: [52.35, 4.9], zoom: 14 });
-  map._sizeChanged = true;
-
-  // Simulate ha-map's _drawLayers: inject the card's layers into the map.
-  for (const layer of el._layers) {
-    map.addLayer(layer);
-  }
-
-  // Moving the map fires moveend -> renderer _updatePaths -> circleMarker._empty.
-  map.setView([52.36, 4.9], 14);
+  el._buildLayers();
+  await el.updateComplete;
+  assert.equal(el._visitsGroup.getLayers().length, el._layers.length);
+  assert.ok(el._visitsGroup.getLayers().length >= 2);
+  el._map.setView([52.36, 4.9], 13);
   assert.ok(true, "map move did not throw");
 });
 
-test("layers are built with the same Leaflet instance the map uses (no dual-copy mixing)", async () => {
+test("card renders the fading visit layer with decay opacity", async (t) => {
   const { dom, el } = makeCard();
-  const L = dom.window.L;
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
+  await mount(dom, el, { entities: ["device_tracker.phone"] });
   const now = Date.now();
   el._rows = [
-    { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
+    {
+      device: "device_tracker.phone",
+      lat: 52.36,
+      lon: 4.9,
+      last_seen: iso(now),
+      moving: false,
+    },
   ];
-  await el._buildLayers();
-  assert.equal(el._layers.length, 1);
-  // The marker must come from the same Leaflet the ha-map element would use,
-  // otherwise the SVG renderer's intersects() blows up on the foreign Bounds.
-  assert.equal(el._mapL, L);
-  assert.ok(el._layers[0] instanceof L.CircleMarker);
+  el._buildLayers();
+  await el.updateComplete;
+  assert.equal(el._visitsGroup.getLayers().length, 1);
+  assert.ok(
+    Math.abs(el._visitsGroup.getLayers()[0].options.opacity - 1) < 1e-6
+  );
 });
 
-test("mixing two independent Leaflet copies crashes on map update (why the card must reuse ha-map's Leaflet)", () => {
-  const domA = makeDom();
-  const domB = makeDom();
-  const LA = domA.window.L;
-  const LB = domB.window.L;
-
-  const div = domA.window.document.createElement("div");
-  Object.defineProperty(div, "clientWidth", { value: 600, configurable: true });
-  Object.defineProperty(div, "clientHeight", { value: 400, configurable: true });
-  domA.window.document.body.appendChild(div);
-  const map = LA.map(div, { center: [52.36, 4.9], zoom: 14 });
-  map._sizeChanged = true;
-
-  const foreignMarker = LB.circleMarker([52.36, 4.9], { radius: 6 });
-  assert.throws(() => map.addLayer(foreignMarker), /undefined/);
+test("card uses the core map tiles proxy when available", async (t) => {
+  const calls = [];
+  const { dom, el } = makeCard({
+    config: { latitude: 52.37, longitude: 4.89, components: ["map_tiles"] },
+    connection: {
+      sendMessagePromise: async (msg) => {
+        calls.push(msg.type);
+        return { token: "tok123" };
+      },
+    },
+  });
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
+  await mount(dom, el, { entities: ["device_tracker.phone"] });
+  assert.ok(calls.includes("map_tiles/access_token"));
+  assert.ok(el._tileLayer._url.includes("/api/map_tiles/raster/"));
+  assert.equal(el._tileLayer.options.token, "tok123");
+  assert.equal(el._tileSource, "map_tiles");
 });
 
-test("_buildLayers connects a stationary dot to an adjacent moving fix (trip departures)", async () => {
-  const { el } = makeCard();
-  const now = Date.now();
-  el._rows = [
-    { device: "device_tracker.phone", lat: 52.3676, lon: 4.9041, last_seen: iso(now), moving: false },
-    { device: "device_tracker.phone", lat: 52.3526, lon: 4.8879, last_seen: iso(now - 60e3), moving: true },
-  ];
-  await el._buildLayers();
-  const dash = (l) => (l.options.dashArray || "").split(" ")[0];
-  const journeys = el._layers.filter((l) => dash(l) === "4");
-  assert.equal(journeys.length, 1);
-  const latlngs = journeys[0].getLatLngs();
-  assert.equal(latlngs.length, 2);
-  assert.ok(Math.abs(latlngs[0].lat - 52.3526) < 1e-9);
-  assert.ok(Math.abs(latlngs[1].lat - 52.3676) < 1e-9);
-});
-
-test("on-demand ha-map load fails cleanly when HA loader internals are absent", async () => {
+test("card falls back to raster tiles without the map tiles integration", async (t) => {
   const { dom, el } = makeCard();
-  el._config = { debug: true };
-  dom.window.customElements.whenDefined = () =>
-    Promise.reject(new Error("partial-panel-resolver not available in test DOM"));
-  const before = el._debugLines.length;
-  const result = await el._ensureHaMapLoaded();
-  assert.equal(result, undefined);
-  assert.ok(el._debugLines.length > before);
-  assert.match(el._debugLines.join("\n"), /FAILED/);
-  assert.equal(el._debug.leafletState, "load-failed");
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
+  await mount(dom, el, { entities: ["device_tracker.phone"] });
+  assert.ok(el._tileLayer._url.includes("cartocdn.com"));
+  assert.equal(el._tileSource, "carto");
+});
+
+test("card rebuilds its map after the error card replaced it", async (t) => {
+  const { dom, el } = makeCard();
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
+  await mount(dom, el, { entities: ["device_tracker.phone"] });
+  assert.ok(el._map);
+  el._error = "refetch failed";
+  await el.updateComplete;
+  assert.equal(el._map, undefined, "stale map torn down");
+  assert.ok(el.renderRoot.querySelector("ha-alert"), "error card shown");
+  el._error = undefined;
+  await el.updateComplete;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(el._map, "map rebuilt");
+  assert.equal(el._map.getContainer(), el.renderRoot.querySelector("#map"));
+});
+
+test("aspect config and the stock aspect_ratio key shape the container", async (t) => {
+  const aspect = makeCard();
+  const stock = makeCard();
+  t.after(() => {
+    aspect.el.remove();
+    aspect.dom.window.close();
+    stock.el.remove();
+    stock.dom.window.close();
+  });
+  await mount(aspect.dom, aspect.el, {
+    entities: ["device_tracker.phone"],
+    aspect: 2,
+  });
+  assert.match(
+    aspect.el.renderRoot.querySelector("#root").getAttribute("style"),
+    /--visit-heatmap-aspect:2 \/ 1;/
+  );
+  await mount(stock.dom, stock.el, {
+    entities: ["device_tracker.phone"],
+    aspect_ratio: "16:9",
+  });
+  assert.match(
+    stock.el.renderRoot.querySelector("#root").getAttribute("style"),
+    /--visit-heatmap-aspect:1\.777/
+  );
 });

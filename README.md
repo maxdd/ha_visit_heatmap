@@ -11,8 +11,10 @@ A **single HACS repo** with two parts:
 - a small companion integration (`custom_components/visit_heatmap`) that durably
   records visit points from **any** GPS `device_tracker` entity (GoogleFindMy-HA
   tags, phones via the companion app, OwnTracks, GPSLogger, ...), and
-- a custom Lovelace card (`visit-heatmap-card`) that reuses the stock `ha-map`
-  element — so it looks like the default map card — and adds the fading visit layer.
+- a custom Lovelace card (`visit-heatmap-card`) that renders its own Leaflet map —
+  entity markers, zones, trails, clustering, like the default map card — and adds
+  the fading visit layer. Base tiles come from Home Assistant's Map tiles proxy
+  (HA 2026.9+), so the browser never talks to an external tile server.
 
 Design rationale and decisions are recorded as ADRs in [`docs/adr/`](docs/adr/).
 
@@ -28,8 +30,12 @@ Design rationale and decisions are recorded as ADRs in [`docs/adr/`](docs/adr/).
 - **Moving vs stationary.** Fixes during travel are recorded separately, rendered
   small and faint, and joined into **dashed journey lines** that fade by recency.
 - **Drop-in map replacement.** Accepts the default map card's config
-  (`entities`, `zones`, `hours_to_show`, `default_zoom`, `theme_mode`, `cluster`, ...)
-  and reuses the stock `ha-map` element for markers, zones, trails, clustering.
+  (`entities`, `zones`, `hours_to_show`, `default_zoom`, `auto_fit`, `fit_zones`,
+  `theme_mode`, `dark_mode`, `cluster`, `aspect_ratio`, ...) and draws markers,
+  zones, trails, and clustering itself on a bundled Leaflet map. HA 2026.9 removed
+  the `ha-map` layer API this card used to build on, so it now owns its map rather
+  than depending on frontend internals (see
+  [ADR-0008](docs/adr/0008-self-contained-map-after-ha-map-layers-removal.md)).
 - **Backfill.** On first install it imports up to `backfill_days` of recorder
   history so the map is populated on day one.
 
@@ -48,6 +54,11 @@ over the websocket on every dashboard load), so it survives the frontend
 service-worker cache and is available on every dashboard without adding a
 resource by hand. If you ever need to load it manually, it is also served at
 `/visit_heatmap/visit-heatmap-card.js`.
+
+Base map tiles are fetched through Home Assistant's Map tiles integration
+(`/api/map_tiles/...`, HA 2026.9+). On older versions the card falls back to the
+Carto raster tiles the stock map used before the switch — the same provider whose
+tiles now show an API-key notice there.
 
 ## Card configuration
 
@@ -104,8 +115,11 @@ real `logic.py`/`store.py` pipeline and prints the resulting rows with their
 decay opacities — a no-HA way to see dedupe, classification, and the fade work.
 
 The card's pure logic is unit-tested (`logic.test.mjs`) and the built bundle is
-smoke-tested in jsdom (`card.test.mjs`, no browser needed); the full interactive
-map render is only verifiable by eye on a Home Assistant instance.
+smoke-tested in jsdom (`card.test.mjs`, no browser needed): the tests mount the
+card, assert that its Leaflet map is created, that the visit/zone/entity layers
+land on it, and that the base layer switches to the `map_tiles` proxy when the
+token is available. The full interactive map is still best verified by eye on a
+Home Assistant instance.
 
 ### Local dev against a docker-compose Home Assistant
 

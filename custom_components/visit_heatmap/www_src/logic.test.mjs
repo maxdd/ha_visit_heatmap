@@ -6,6 +6,8 @@ import {
   withinHorizon,
   parseEntities,
   journeySegments,
+  parseAspectRatio,
+  gradientOpacity,
 } from "./logic.mjs";
 
 const DAY = 86400e3;
@@ -124,4 +126,28 @@ test("parseEntities: explicit list keeps order and normalizes strings", () => {
     { entity: "device_tracker.a" },
     { entity: "device_tracker.b", color: "#f00" },
   ]);
+});
+
+test("parseAspectRatio: stock map-card aspect_ratio forms", () => {
+  assert.equal(parseAspectRatio(undefined), undefined);
+  assert.equal(parseAspectRatio(""), undefined);
+  assert.equal(parseAspectRatio("16:9"), 16 / 9);
+  assert.equal(parseAspectRatio("4/3"), 4 / 3);
+  assert.equal(parseAspectRatio("1.5"), 1.5);
+  assert.equal(parseAspectRatio(2), 2);
+  assert.equal(parseAspectRatio("0"), undefined);
+  assert.equal(parseAspectRatio("nonsense"), undefined);
+});
+
+test("gradientOpacity: ramps oldest->newest, guards short trails", () => {
+  const close = (actual, expected) =>
+    assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  close(gradientOpacity(0, 3, 0.8), 0.2);
+  close(gradientOpacity(1, 3, 0.8), 1);
+  close(gradientOpacity(2, 3, 0.8), 1);
+  close(gradientOpacity(0, 1, 0.8), 0.2);
+  close(gradientOpacity(0, 2, 0.8), 0.2);
+  close(gradientOpacity(1, 2, 0.8), 1);
+  close(gradientOpacity(0, 5, undefined), 1);
+  close(gradientOpacity(4, 5, 0.8), 1);
 });

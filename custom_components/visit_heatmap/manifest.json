@@ -1,14 +1,14 @@
 {
   "domain": "visit_heatmap",
   "name": "Visit Heatmap",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "config_flow": true,
   "dependencies": ["history", "http", "frontend", "websocket_api"],
   "after_dependencies": ["lovelace"],
   "iot_class": "local_polling",
   "integration_type": "service",
-  "codeowners": ["@your-github-username"],
-  "documentation": "https://github.com/ha-visit-heatmap/ha-visit-heatmap",
-  "issue_tracker": "https://github.com/ha-visit-heatmap/ha-visit-heatmap/issues",
+  "codeowners": ["@maxdd"],
+  "documentation": "https://github.com/maxdd/ha_visit_heatmap",
+  "issue_tracker": "https://github.com/maxdd/ha_visit_heatmap/issues",
   "requirements": []
 }

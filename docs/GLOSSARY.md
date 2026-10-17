@@ -20,7 +20,8 @@ Terms used consistently across the ADRs, code, and card config.
 | **Opacity** | Rendering alpha of a visit marker, `0…1`. Computed client-side from recency, so the fade animates without refetching. |
 | **Retention** | Integration storage bound: how long rows are kept (default **90 days**). Older rows are purged from the store regardless of any card's horizon. Always ≥ a likely card horizon. |
 | **Companion integration** | The `custom_components/visit_heatmap`. Listens to every GPS `device_tracker` state change, maintains the store, serves data to the card over a WebSocket command. |
-| **Visit-heatmap card** | The custom Lovelace card `visit-heatmap-card`. A drop-in visual replacement for the default map card (a thin clone reusing the stock `ha-map` element) with an added visit layer. |
+| **Visit-heatmap card** | The custom Lovelace card `visit-heatmap-card`. A drop-in visual replacement for the default map card that renders its own Leaflet map with an added visit layer. Since HA 2026.9 the stock `ha-map` element no longer accepts custom layers (ADR-0008). |
+| **Map tiles proxy** | Home Assistant's Map tiles integration (HA 2026.9+), which fetches and caches OSM tiles through the instance at `/api/map_tiles/…`. The card requests its access token over the `map_tiles/access_token` WebSocket command; older HA versions fall back to Carto raster tiles. |
 | **Store** | The integration's durable data file: `visit-heatmap.json` in the HA config dir (see ADR-0005). |
 | **Backfill** | On first install, importing up to historical GPS `device_tracker` positions for the last `backfill_days` (default 10) from the HA `history`/recorder, fed through the normal dedupe pipeline (see ADR-0007). |
 | **Tracker / device** | Any HA `device_tracker` entity that exposes GPS lat/lon, e.g. a GoogleFindMy-HA tag, a phone via the companion app, OwnTracks, GPSLogger. |

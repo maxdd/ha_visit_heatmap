@@ -1,7 +1,13 @@
 # ADR-0004: Rendering and card scope — full map-clone, per-device colors, moving vs still
 
-## Status: Accepted
+## Status: Accepted — revised by [ADR-0008](0008-self-contained-map-after-ha-map-layers-removal.md) (2026-10-17)
 ## Date: 2026-08-06
+
+> **Revision note (2026-10-17).** HA 2026.9 removed `ha-map`'s `layers` property
+> and its Leaflet internals, so "reuse stock `ha-map` + injected layers" no
+> longer works — the visit layer silently disappeared. The card now renders its
+> own Leaflet map; the visit styles, moving/journey rules, and the config surface
+> below are unchanged. See ADR-0008.
 
 ## Context
 
