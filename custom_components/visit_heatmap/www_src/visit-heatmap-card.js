@@ -17,6 +17,14 @@ import {
   parseAspectRatio,
   gradientOpacity,
 } from "./logic.mjs";
+import {
+  MAP_STYLES,
+  DEFAULT_MAP_STYLE,
+  isCustomMapStyle,
+  withMapStyleBase,
+  resolveMapStyle,
+} from "./map-style-config.mjs";
+import { buildMapStyle } from "./map-style.mjs";
 
 const DECAY_RATE_DEFAULT = 0.1;
 const HORIZON_DEFAULT = 30;
@@ -122,6 +130,21 @@ function supportsVectorMaps() {
     vectorSupport = false;
   }
   return vectorSupport;
+}
+
+// MapLibre rejects a relative sprite URL, and both the frontend's shipped
+// styles and the builder's URL manifest carry one.
+function absoluteSpriteUrls(style) {
+  const absolute = (url) => new URL(url, window.location.href).href;
+  if (typeof style.sprite === "string") {
+    style.sprite = absolute(style.sprite);
+  } else if (Array.isArray(style.sprite)) {
+    style.sprite = style.sprite.map((entry) => ({
+      ...entry,
+      url: absolute(entry.url),
+    }));
+  }
+  return style;
 }
 
 class VisitHeatmapCard extends LitElement {
@@ -685,7 +708,12 @@ class VisitHeatmapCard extends LitElement {
         TOKEN_REFRESH_MS
       );
     }
-    if (token && supportsVectorMaps() && (await this._tryVectorBaseLayer(token))) {
+    if (
+      this._config.base_map !== "raster" &&
+      token &&
+      supportsVectorMaps() &&
+      (await this._tryVectorBaseLayer(token))
+    ) {
       if (this._config.debug) this.requestUpdate();
       return;
     }
@@ -741,12 +769,39 @@ class VisitHeatmapCard extends LitElement {
     }
   }
 
+  // The frontend's own light/dark pair is exactly the stock map's default; any
+  // other cartography - or a style the card adjusts - is built here from the
+  // same builder. Either way the sprite URL is absolutized before MapLibre
+  // sees the style.
   async _fetchMapStyle() {
-    const url = this._resolvedDark() ? MAP_STYLE_URLS.dark : MAP_STYLE_URLS.light;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`style ${url} -> ${response.status}`);
-    // Parsed per application: MapLibre mutates the style object it is handed.
-    return JSON.parse(await response.text());
+    const resolved = resolveMapStyle(
+      this._config.map_style,
+      this._resolvedDark()
+    );
+    const shipped = resolved.shipped && MAP_STYLE_URLS[resolved.shipped];
+    let style;
+    if (shipped) {
+      const response = await fetch(shipped);
+      if (!response.ok) throw new Error(`style ${shipped} -> ${response.status}`);
+      // Parsed per application: MapLibre mutates the style object it is handed.
+      style = JSON.parse(await response.text());
+    } else {
+      style = await buildMapStyle(
+        resolved.palette,
+        resolved.options ?? {},
+        resolved.baseColors,
+        this.hass?.config?.version
+      );
+    }
+    return absoluteSpriteUrls(style);
+  }
+
+  _styleLabel() {
+    const resolved = resolveMapStyle(
+      this._config.map_style,
+      this._resolvedDark()
+    );
+    return resolved.shipped ?? resolved.palette;
   }
 
   // MapLibre hands URLs to a worker, which has no document to resolve relative
@@ -1233,7 +1288,8 @@ class VisitHeatmapCard extends LitElement {
         config entities: ${this._entities.join(", ") || "none"}<br />
         rows: ${rows} · layers: ${layers} · paths: ${paths}<br />
         map: ${this._map ? "mounted" : "not mounted"} ·
-        tiles: ${this._tileSource || "pending"}<br />
+        tiles: ${this._tileSource || "pending"} ·
+        style: ${this._tileSource === "vector" ? this._styleLabel() : "-"}<br />
         hass: ${this.hass ? "yes" : "no"} · connection: ${this.hass?.connection ? "yes" : "no"}<br />
         ${this._backendDebug ? `backend: ${this._backendDebug}` : ""}
         <details>
@@ -1386,6 +1442,13 @@ if (!customElements.get("visit-heatmap-card")) {
   customElements.define("visit-heatmap-card", VisitHeatmapCard);
 }
 
+// The editor only offers the cartography; whatever else a hand-written
+// `map_style` object carries is preserved by withMapStyleBase on edit.
+const mapStyleValue = (style) => {
+  const named = isCustomMapStyle(style) ? style.base : style;
+  return MAP_STYLES.includes(named) ? named : DEFAULT_MAP_STYLE;
+};
+
 class VisitHeatmapCardEditor extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -1443,6 +1506,29 @@ class VisitHeatmapCardEditor extends LitElement {
     return (ev) => this._set(field, ev.target.checked);
   }
 
+  _onMapStyle(ev) {
+    const base = ev.detail?.value;
+    if (typeof base !== "string") return;
+    const config = { ...this._config };
+    const style = withMapStyleBase(this._config.map_style, base);
+    if (style === undefined) {
+      delete config.map_style;
+    } else {
+      config.map_style = style;
+    }
+    fireEvent(this, "config-changed", { config });
+  }
+
+  _onBaseMap(ev) {
+    const config = { ...this._config };
+    if (ev.detail?.value === "raster") {
+      config.base_map = "raster";
+    } else {
+      delete config.base_map;
+    }
+    fireEvent(this, "config-changed", { config });
+  }
+
   render() {
     const c = this._config;
     const text = (label, value, onChange) =>
@@ -1471,6 +1557,23 @@ class VisitHeatmapCardEditor extends LitElement {
         ${text("Max points (cap)", c.max_points ?? MAX_POINTS_DEFAULT, this._onNumber("max_points"))}
         ${text("Max width (px)", c.max_width ?? "", this._onOptionalNumber("max_width"))}
         ${text("Aspect (width/height)", c.aspect ?? 1, this._onOptionalNumber("aspect"))}
+        <ha-select
+          label="Map style"
+          helper="Match the stock map card; default carries Home Assistant's colors"
+          .value=${mapStyleValue(c.map_style)}
+          .options=${MAP_STYLES}
+          @selected=${this._onMapStyle}
+        ></ha-select>
+        <ha-select
+          label="Base map"
+          helper="Vector matches the stock map; raster is plain OpenStreetMap"
+          .value=${c.base_map === "raster" ? "raster" : "vector"}
+          .options=${[
+            { value: "vector", label: "Vector (stock cartography)" },
+            { value: "raster", label: "Raster (plain OpenStreetMap)" },
+          ]}
+          @selected=${this._onBaseMap}
+        ></ha-select>
         <div>
           <ha-switch ?checked=${c.show_moving !== false} @change=${this._onToggle("show_moving")}></ha-switch>
           <span>Show moving points and journey lines</span>

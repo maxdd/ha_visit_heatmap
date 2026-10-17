@@ -612,7 +612,8 @@
         it bundles Leaflet for the fading layers and draws the <em>same cartography as the
         stock map</em> underneath — MapLibre on the frontend's shipped vector styles,
         through the core Map&nbsp;tiles proxy (<code class="inline">/api/map_tiles/…</code>,
-        token over WebSocket), with raster and Carto fallbacks (ADR-0008). Map and layers
+        token over WebSocket), with raster and Carto fallbacks and the stock card's
+        <code class="inline">map_style</code> cartographies (ADR-0008). Map and layers
         share that one bundled Leaflet, so no dual-copy bookkeeping is possible.</p>
         <p class="muted"><code class="inline">_renderVisits</code> swaps the visit
         <code class="inline">LayerGroup</code> into the card's map; entity markers, zones

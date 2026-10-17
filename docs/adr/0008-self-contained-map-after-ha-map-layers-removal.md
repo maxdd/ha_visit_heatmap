@@ -47,7 +47,13 @@ The card renders **its own Leaflet map**; it no longer uses `<ha-map>`.
   cross-origin). MapLibre's worker is shipped next to the card bundle and pointed
   at with `setWorkerUrl`, since a bundled IIFE card cannot resolve
   `import.meta.url`. Refresh the token periodically and on map errors, re-applying
-  the style when a request was refused. Without WebGL2, fall back to the proxy's
+  the style when a request was refused. `map_style` mirrors the stock card's
+  picker: the same cartography names (`default`, `colorful`, `natural`, `muted`,
+  `gray`, `toner`) and the same inline adjustment object, fetching the frontend's
+  shipped default pair and building every other cartography in the browser from
+  the same `@versatiles/style` builder and `/static/map/urls.json` asset manifest
+  the frontend's own build uses. `base_map: raster` forces the proxy's plain
+  raster tiles instead. Without WebGL2, fall back to the proxy's
   raster tiles; on older Home Assistant (no `map_tiles`) fall back to the Carto
   raster tiles the stock map itself used before the switch. Dark mode switches
   vector styles and inverts raster tiles in CSS, as core does for its fallback.
@@ -71,12 +77,15 @@ The card renders **its own Leaflet map**; it no longer uses `<ha-map>`.
 - (＋) Tiles stay private: the browser talks only to the Home Assistant instance on
   2026.9+.
 - (＋) The base map matches the default map card: same vector style, labels,
-  light/dark cartography and proxy — no third-party tile requests.
+  light/dark cartography and proxy — no third-party tile requests. `map_style`
+  additionally offers the stock card's other cartographies and inline
+  adjustments, built with the frontend's own builder.
 - (－) The card owns map furniture it used to delegate; marker styling is close to
   but not identical to the stock map (no avatar-frame parity).
 - (－) On Home Assistant before 2026.9 the Carto fallback shows the provider's
   API-key notice — exactly what the stock map shows there today.
-- (－) The bundle grows (Leaflet + markercluster + MapLibre GL; ~1.3 MB minified,
+- (－) The bundle grows (Leaflet + markercluster + MapLibre GL + the
+  `@versatiles/style` builder for non-default cartographies; ~1.5 MB minified,
   plus a ~0.5 MB worker loaded only when the vector map initializes).
 
 ## Rejected

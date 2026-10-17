@@ -313,6 +313,119 @@ test("_mapTilesRequest carries the token to the proxy only", () => {
   assert.ok(!foreign.url.includes("token"));
 });
 
+test("_fetchMapStyle: the default is the frontend's shipped pair", async () => {
+  const { dom, el } = makeCard();
+  const calls = [];
+  dom.window.fetch = async (url) => {
+    calls.push(String(url));
+    return {
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          version: 8,
+          sprite: [{ id: "s", url: "/static/map/sprites/s" }],
+          sources: {},
+          layers: [],
+        }),
+    };
+  };
+  el.setConfig({ entities: ["device_tracker.phone"] });
+  const style = await el._fetchMapStyle();
+  assert.deepEqual(calls, ["/static/map/light.json"]);
+  // MapLibre rejects a relative sprite URL; the shipped pair carries one.
+  assert.equal(style.sprite.length, 1);
+  assert.equal(style.sprite[0].url, "http://localhost/static/map/sprites/s");
+  assert.equal(el._styleLabel(), "light");
+});
+
+test("_fetchMapStyle: another cartography is built in the browser", async () => {
+  const { dom, el } = makeCard();
+  let urlsCall;
+  dom.window.fetch = async (url) => {
+    urlsCall = String(url);
+    return {
+      ok: true,
+      json: async () => ({
+        base: "",
+        glyphsPattern: "/api/map_tiles/fonts/{fontstack}/{range}.pbf",
+        sprite: [{ id: "icons", url: "/static/map/sprites/icons?v=1" }],
+      }),
+    };
+  };
+  el.setConfig({ map_style: "natural", entities: ["device_tracker.phone"] });
+  const style = await el._fetchMapStyle();
+  // The asset manifest is asked for versioned, like the frontend's own copy.
+  assert.ok(urlsCall.startsWith("/static/map/urls.json"));
+  const sources = Object.values(style.sources);
+  assert.equal(sources.length, 1);
+  assert.equal(sources[0].url, "/api/map_tiles/tilejson.json");
+  assert.equal(style.glyphs, "/api/map_tiles/fonts/{fontstack}/{range}.pbf");
+  assert.equal(style.sprite.length, 1);
+  assert.equal(
+    style.sprite[0].url,
+    "http://localhost/static/map/sprites/icons?v=1"
+  );
+  assert.equal(style.sky["atmosphere-blend"], 0.5);
+  assert.equal(el._styleLabel(), "natural");
+});
+
+test("base_map: raster skips the vector cartography", async (t) => {
+  const fetches = [];
+  const { dom, el } = makeCard({
+    config: { latitude: 52.37, longitude: 4.89, components: ["map_tiles"] },
+    connection: { sendMessagePromise: async () => ({ token: "tok123" }) },
+  });
+  dom.window.fetch = async (url) => {
+    fetches.push(String(url));
+    return { ok: false, status: 404 };
+  };
+  t.after(() => {
+    el.remove();
+    dom.window.close();
+  });
+  await mount(dom, el, {
+    entities: ["device_tracker.phone"],
+    base_map: "raster",
+  });
+  assert.equal(el._vectorLayer, undefined);
+  assert.equal(el._tileSource, "map_tiles");
+  assert.ok(el._tileLayer._url.includes("/api/map_tiles/raster/"));
+  // Nothing was fetched for a style or a worker: the vector path never ran.
+  assert.deepEqual(fetches, []);
+});
+
+test("editor writes map_style, keeping what only YAML can say", () => {
+  const { dom } = makeCard();
+  const editor = dom.window.document.createElement(
+    "visit-heatmap-card-editor"
+  );
+  editor.setConfig({ map_style: { base: "gray", recolor: { saturate: 0 } } });
+  const events = [];
+  editor.addEventListener("config-changed", (ev) => events.push(ev.detail.config));
+  editor._onMapStyle({ detail: { value: "natural" } });
+  assert.equal(events[0].map_style.base, "natural");
+  assert.equal(events[0].map_style.recolor.saturate, 0);
+  // Picking the default drops the base, but not what only YAML can say.
+  editor._onMapStyle({ detail: { value: "default" } });
+  assert.equal(events[1].map_style.base, undefined);
+  assert.equal(events[1].map_style.recolor.saturate, 0);
+
+  // With nothing else to carry, the default is written as absence.
+  const plain = dom.window.document.createElement("visit-heatmap-card-editor");
+  plain.setConfig({ entities: [] });
+  const plainEvents = [];
+  plain.addEventListener("config-changed", (ev) =>
+    plainEvents.push(ev.detail.config)
+  );
+  plain._onMapStyle({ detail: { value: "default" } });
+  assert.equal("map_style" in plainEvents[0], false);
+
+  editor._onBaseMap({ detail: { value: "raster" } });
+  assert.equal(events[2].base_map, "raster");
+  editor._onBaseMap({ detail: { value: "vector" } });
+  assert.equal("base_map" in events[3], false);
+});
+
 test("maplibre worker ships next to the card bundle", () => {
   const worker = fileURLToPath(
     new URL("../www/maplibre-gl-worker.js", import.meta.url)

@@ -58,10 +58,13 @@ resource by hand. If you ever need to load it manually, it is also served at
 The base map matches the stock map card: on HA 2026.9+ the card draws the same
 MapLibre vector cartography (the frontend's shipped light/dark styles) through
 the Map tiles proxy — no external tile requests, and it follows `theme_mode`.
-Browsers without WebGL2 get the proxy's raster tiles instead; on older Home
-Assistant versions the card falls back to the Carto raster tiles the stock map
-used before the switch (the same provider whose tiles now show an API-key notice
-there).
+`map_style` picks any of the stock card's cartographies — `default`, `colorful`,
+`natural`, `muted`, `gray`, `toner` — or an adjusted style object; `base_map:
+raster` trades the vector cartography for the proxy's plain OpenStreetMap
+raster. Browsers without WebGL2 get the proxy's raster tiles instead; on older
+Home Assistant versions the card falls back to the Carto raster tiles the stock
+map used before the switch (the same provider whose tiles now show an API-key
+notice there).
 
 ## Card configuration
 
@@ -77,11 +80,14 @@ show_moving: true    # show moving points + journey lines
 exclude_zones: false # hide visits inside configured HA zones
 max_gap: 30          # minutes to join two moving fixes into one journey (default)
 max_dist: 1000       # meters; close fixes stay connected even past max_gap (default)
+map_style: default   # stock cartographies: default, colorful, natural, muted,
+                     # gray, toner — or an object: { base: natural, recolor: {...} }
+base_map: vector     # vector cartography (default); raster for plain OpenStreetMap
 ```
 
 It also accepts the default map card's keys: `zones`, `hours_to_show`,
 `default_zoom`, `auto_fit`, `fit_zones`, `theme_mode`, `dark_mode`, `cluster`,
-`show_all`, `aspect_ratio`.
+`map_style`, `show_all`, `aspect_ratio`.
 
 > `show_all: true` maps every GPS `device_tracker` entity (no entity list needed);
 > `hours_to_show` draws the stock map card's recent-movement trails layer on top of
