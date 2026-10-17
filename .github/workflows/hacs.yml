@@ -3,6 +3,9 @@ name: HACS validation
 on:
   push:
   pull_request:
+  # Re-run from the Actions tab after changing repository settings, so the
+  # metadata checks (description, topics) can be re-validated without a commit.
+  workflow_dispatch:
 
 jobs:
   hacs:
@@ -10,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # Requires the real repository URL in manifest.json (documentation +
-      # issue_tracker) — see the Releasing checklist. Green only after the
-      # repo exists and those placeholders are filled in.
+      # The manifest URLs are real; the only checks that need something outside
+      # the repo are `description` and `topics`, set under the repository's
+      # About section (gear icon on the repo page).
       - uses: hacs/action@main
         with:
           category: integration
