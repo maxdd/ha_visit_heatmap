@@ -5,6 +5,9 @@ import L from "leaflet";
 import "leaflet.markercluster";
 import leafletCss from "leaflet/dist/leaflet.css";
 import markerClusterCss from "leaflet.markercluster/dist/MarkerCluster.css";
+import * as maplibregl from "maplibre-gl";
+import { maplibreGL } from "@maplibre/maplibre-gl-leaflet";
+import maplibreCss from "maplibre-gl/dist/maplibre-gl.css";
 import {
   haversineM,
   decayOpacity,
@@ -34,14 +37,29 @@ const RASTER_MAX_NATIVE_ZOOM = 19;
 const HOME_LOCATION_FALLBACK = [52.3731339, 4.8903147];
 
 // Core's Map tiles proxy (HA >= 2026.9): no external tile requests, no API
-// keys. The token comes from the `map_tiles/access_token` WS command and also
-// rides in the query string, which is what an <img> tile request can carry.
+// keys. The token comes from the `map_tiles/access_token` WS command; vector
+// requests carry it as a header (or a query parameter cross-origin, where a
+// custom header would cost a CORS preflight), and the raster template has it
+// in the query string, which is what an <img> tile request can carry.
 const MAP_TILES_PATH = "/api/map_tiles";
 const MAP_TILES_RASTER_URL = `${MAP_TILES_PATH}/raster/{z}/{x}/{y}.png?token={token}`;
+const MAP_TILES_TOKEN_HEADER = "X-Map-Tiles-Token";
 const TOKEN_REFRESH_MS = 20 * 60 * 1000;
 const TILE_RECOVERY_THROTTLE_MS = 30000;
 const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+// The stock map on HA 2026.9+ is MapLibre on Shortbread vector tiles; render
+// the same cartography from the same shipped styles and tile proxy so the card
+// matches the dashboard's other map cards.
+const MAP_STYLE_URLS = {
+  light: "/static/map/light.json",
+  dark: "/static/map/dark.json",
+};
+// Served next to the card bundle by the integration's static path. MapLibre
+// v6 resolves its worker from import.meta.url, which a bundled card cannot
+// provide, so the worker is pointed at explicitly.
+const MAPLIBRE_WORKER_URL = "/visit_heatmap/maplibre-gl-worker.js";
 
 // Fallback for Home Assistant versions before the Map tiles integration. This
 // is the same raster source the stock map itself fell back to, including the
@@ -91,6 +109,21 @@ function prefersCanvas() {
   }
 }
 
+// Same gate as the stock map: MapLibre needs WebGL2, and the worker chunk
+// needs BigInt to parse. Without both, the raster proxy still draws a map.
+let vectorSupport;
+function supportsVectorMaps() {
+  if (vectorSupport !== undefined) return vectorSupport;
+  try {
+    const context = document.createElement("canvas").getContext("webgl2");
+    context?.getExtension("WEBGL_lose_context")?.loseContext();
+    vectorSupport = Boolean(context) && typeof BigInt === "function";
+  } catch {
+    vectorSupport = false;
+  }
+  return vectorSupport;
+}
+
 class VisitHeatmapCard extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -121,7 +154,11 @@ class VisitHeatmapCard extends LitElement {
     this._configDirty = false;
     this._map = undefined;
     this._tileLayer = undefined;
+    this._vectorLayer = undefined;
+    this._tileToken = undefined;
     this._tileSource = undefined;
+    this._tilesSetup = false;
+    this._styleDark = undefined;
     this._tileTokenTimer = undefined;
     this._lastTileRecovery = 0;
     this._entitiesGroup = undefined;
@@ -216,7 +253,11 @@ class VisitHeatmapCard extends LitElement {
     this._map?.remove();
     this._map = undefined;
     this._tileLayer = undefined;
+    this._vectorLayer = undefined;
+    this._tileToken = undefined;
     this._tileSource = undefined;
+    this._tilesSetup = false;
+    this._styleDark = undefined;
     this._entitiesGroup = undefined;
     this._zonesGroup = undefined;
     this._trailsGroup = undefined;
@@ -633,8 +674,21 @@ class VisitHeatmapCard extends LitElement {
   }
 
   async _setupTiles() {
+    if (this._tilesSetup) return;
+    this._tilesSetup = true;
     const token = await this._fetchMapTilesToken();
-    if (!this._map || this._tileLayer) return;
+    if (!this._map) return;
+    this._tileToken = token;
+    if (token) {
+      this._tileTokenTimer = window.setInterval(
+        () => this._refreshTileToken(),
+        TOKEN_REFRESH_MS
+      );
+    }
+    if (token && supportsVectorMaps() && (await this._tryVectorBaseLayer(token))) {
+      if (this._config.debug) this.requestUpdate();
+      return;
+    }
     if (token) {
       this._tileLayer = this._createMapTilesLayer(token);
       this._tileSource = "map_tiles";
@@ -659,6 +713,74 @@ class VisitHeatmapCard extends LitElement {
     }
   }
 
+  // The stock cartography: MapLibre on the frontend's shipped Shortbread style,
+  // tiles and glyphs through the same proxy the stock map uses.
+  async _tryVectorBaseLayer(token) {
+    try {
+      const workerUrl = new URL(MAPLIBRE_WORKER_URL, window.location.origin).href;
+      const workerCheck = await fetch(workerUrl, { method: "HEAD" });
+      if (!workerCheck.ok) {
+        throw new Error(`worker unavailable (${workerCheck.status})`);
+      }
+      const style = await this._fetchMapStyle();
+      maplibregl.setWorkerUrl(workerUrl);
+      const layer = maplibreGL({
+        style,
+        transformRequest: (url) => this._mapTilesRequest(url),
+      });
+      layer.addTo(this._map);
+      this._vectorLayer = layer;
+      this._styleDark = this._resolvedDark();
+      this._tileSource = "vector";
+      layer.getMaplibreMap()?.on("error", () => this._onVectorError());
+      this._log("base layer: vector");
+      return true;
+    } catch (err) {
+      this._log("vector base layer failed, using raster:", err?.message || err);
+      return false;
+    }
+  }
+
+  async _fetchMapStyle() {
+    const url = this._resolvedDark() ? MAP_STYLE_URLS.dark : MAP_STYLE_URLS.light;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`style ${url} -> ${response.status}`);
+    // Parsed per application: MapLibre mutates the style object it is handed.
+    return JSON.parse(await response.text());
+  }
+
+  // MapLibre hands URLs to a worker, which has no document to resolve relative
+  // paths against, so every request is absolutized; proxy requests carry the
+  // access token - as a header same-origin, as a query parameter otherwise
+  // (where a custom header would cost a CORS preflight per tile).
+  _mapTilesRequest(url) {
+    let parsed;
+    try {
+      parsed = new URL(url, window.location.origin);
+    } catch {
+      return { url };
+    }
+    if (!parsed.pathname.startsWith(`${MAP_TILES_PATH}/`)) {
+      return { url: parsed.href };
+    }
+    const token = this._tileToken;
+    if (parsed.origin === window.location.origin) {
+      return {
+        url: parsed.href,
+        headers: token ? { [MAP_TILES_TOKEN_HEADER]: token } : undefined,
+      };
+    }
+    if (token) parsed.searchParams.set("token", token);
+    return { url: parsed.href };
+  }
+
+  _onVectorError() {
+    const now = Date.now();
+    if (now - this._lastTileRecovery < TILE_RECOVERY_THROTTLE_MS) return;
+    this._lastTileRecovery = now;
+    this._refreshTileToken();
+  }
+
   _createMapTilesLayer(token) {
     const layer = L.tileLayer(MAP_TILES_RASTER_URL, {
       token,
@@ -667,25 +789,24 @@ class VisitHeatmapCard extends LitElement {
       maxZoom: MAP_MAX_ZOOM,
       maxNativeZoom: RASTER_MAX_NATIVE_ZOOM,
     });
-    this._tileTokenTimer = window.setInterval(
-      () => this._refreshTileToken(layer),
-      TOKEN_REFRESH_MS
-    );
-    layer.on("tileerror", () => {
-      const now = Date.now();
-      if (now - this._lastTileRecovery < TILE_RECOVERY_THROTTLE_MS) return;
-      this._lastTileRecovery = now;
-      this._refreshTileToken(layer);
-    });
+    layer.on("tileerror", () => this._onVectorError());
     return layer;
   }
 
-  async _refreshTileToken(layer) {
+  async _refreshTileToken() {
     const token = await this._fetchMapTilesToken();
-    if (!token || !this._map || layer !== this._tileLayer) return;
-    if (layer.options.token !== token) {
-      layer.options.token = token;
-      layer.redraw();
+    if (!token || !this._map) return;
+    this._tileToken = token;
+    if (this._vectorLayer) {
+      // A token refused once leaves the MapLibre source dead; re-applying the
+      // style rebuilds it with the new token.
+      this._applyVectorStyle(true);
+      this._log("map tiles token refreshed (vector)");
+      return;
+    }
+    if (this._tileLayer && this._tileLayer.options.token !== token) {
+      this._tileLayer.options.token = token;
+      this._tileLayer.redraw();
       this._log("map tiles token refreshed");
     }
   }
@@ -699,12 +820,37 @@ class VisitHeatmapCard extends LitElement {
     });
   }
 
-  _applyTheme() {
+  _resolvedDark() {
     const mode =
       this._config.theme_mode || (this._config.dark_mode ? "dark" : "auto");
-    const dark =
-      mode === "dark" || (mode === "auto" && Boolean(this.hass?.themes?.darkMode));
+    return (
+      mode === "dark" || (mode === "auto" && Boolean(this.hass?.themes?.darkMode))
+    );
+  }
+
+  _applyTheme() {
+    const dark = this._resolvedDark();
+    // Only the raster base is inverted for dark mode; the vector style ships
+    // its own dark cartography.
     this.renderRoot?.querySelector("#map")?.classList.toggle("dark", dark);
+    if (this._vectorLayer && dark !== this._styleDark) {
+      this._applyVectorStyle(true);
+    }
+  }
+
+  async _applyVectorStyle(force = false) {
+    if (!this._vectorLayer || !this._map) return;
+    const dark = this._resolvedDark();
+    if (!force && dark === this._styleDark) return;
+    this._styleDark = dark;
+    try {
+      const style = await this._fetchMapStyle();
+      if (this._vectorLayer && this._map) {
+        this._vectorLayer.getMaplibreMap()?.setStyle(style);
+      }
+    } catch (err) {
+      this._log("style switch failed:", err?.message || err);
+    }
   }
 
   // --- entity markers, zones, trails, visits --------------------------------
@@ -1137,6 +1283,7 @@ class VisitHeatmapCard extends LitElement {
   static styles = css`
     ${unsafeCSS(leafletCss)}
     ${unsafeCSS(markerClusterCss)}
+    ${unsafeCSS(maplibreCss)}
     :host {
       display: block;
       width: 100%;

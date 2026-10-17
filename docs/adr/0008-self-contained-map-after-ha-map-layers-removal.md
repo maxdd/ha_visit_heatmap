@@ -39,13 +39,18 @@ possible without external tile hosts or API keys.
 
 The card renders **its own Leaflet map**; it no longer uses `<ha-map>`.
 
-- **Base tiles**: when the `map_tiles` component is loaded, fetch the access token
-  and point a Leaflet `tileLayer` at
-  `/api/map_tiles/raster/{z}/{x}/{y}.png?token={token}` (the same way core's
-  non-WebGL fallback does). Refresh the token periodically and on `tileerror`.
-  On older Home Assistant (no `map_tiles`), fall back to the raster tiles the
-  stock map itself used before the switch (Carto). Dark mode inverts raster tiles
-  in CSS, as core does for its raster fallback.
+- **Base map**: when the `map_tiles` component is loaded, fetch the access token
+  and render **the same cartography as the stock map** — MapLibre GL (via
+  `@maplibre/maplibre-gl-leaflet`) on the frontend's shipped Shortbread vector
+  styles (`/static/map/light.json` / `dark.json`), with tiles, glyphs and the
+  token flowing through `/api/map_tiles/…` (header same-origin, query parameter
+  cross-origin). MapLibre's worker is shipped next to the card bundle and pointed
+  at with `setWorkerUrl`, since a bundled IIFE card cannot resolve
+  `import.meta.url`. Refresh the token periodically and on map errors, re-applying
+  the style when a request was refused. Without WebGL2, fall back to the proxy's
+  raster tiles; on older Home Assistant (no `map_tiles`) fall back to the Carto
+  raster tiles the stock map itself used before the switch. Dark mode switches
+  vector styles and inverts raster tiles in CSS, as core does for its fallback.
 - **Card-owned map furniture**: entity markers (per-device colored, picture/icon,
   tooltips, `hass-more-info` on click), zone circles + markers for `zones`,
   clustering of entity markers via `leaflet.markercluster`, `hours_to_show` trails,
@@ -65,11 +70,14 @@ The card renders **its own Leaflet map**; it no longer uses `<ha-map>`.
   constraint: layers and map come from the same bundled Leaflet by construction.
 - (＋) Tiles stay private: the browser talks only to the Home Assistant instance on
   2026.9+.
+- (＋) The base map matches the default map card: same vector style, labels,
+  light/dark cartography and proxy — no third-party tile requests.
 - (－) The card owns map furniture it used to delegate; marker styling is close to
   but not identical to the stock map (no avatar-frame parity).
 - (－) On Home Assistant before 2026.9 the Carto fallback shows the provider's
   API-key notice — exactly what the stock map shows there today.
-- (－) The bundle grows (Leaflet + markercluster stay bundled; ~235 KB minified).
+- (－) The bundle grows (Leaflet + markercluster + MapLibre GL; ~1.3 MB minified,
+  plus a ~0.5 MB worker loaded only when the vector map initializes).
 
 ## Rejected
 

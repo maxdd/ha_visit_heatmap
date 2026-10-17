@@ -55,10 +55,13 @@ service-worker cache and is available on every dashboard without adding a
 resource by hand. If you ever need to load it manually, it is also served at
 `/visit_heatmap/visit-heatmap-card.js`.
 
-Base map tiles are fetched through Home Assistant's Map tiles integration
-(`/api/map_tiles/...`, HA 2026.9+). On older versions the card falls back to the
-Carto raster tiles the stock map used before the switch — the same provider whose
-tiles now show an API-key notice there.
+The base map matches the stock map card: on HA 2026.9+ the card draws the same
+MapLibre vector cartography (the frontend's shipped light/dark styles) through
+the Map tiles proxy — no external tile requests, and it follows `theme_mode`.
+Browsers without WebGL2 get the proxy's raster tiles instead; on older Home
+Assistant versions the card falls back to the Carto raster tiles the stock map
+used before the switch (the same provider whose tiles now show an API-key notice
+there).
 
 ## Card configuration
 

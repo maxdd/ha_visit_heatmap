@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
 
@@ -30,6 +30,9 @@ function makeDom() {
     url: "http://localhost/",
   });
   stubCanvas(dom);
+  // MapLibre's module scope touches these; jsdom does not provide them.
+  dom.window.TextDecoder ??= TextDecoder;
+  dom.window.TextEncoder ??= TextEncoder;
   dom.window.eval(BUNDLE);
   return dom;
 }
@@ -292,6 +295,30 @@ test("card uses the core map tiles proxy when available", async (t) => {
   assert.ok(el._tileLayer._url.includes("/api/map_tiles/raster/"));
   assert.equal(el._tileLayer.options.token, "tok123");
   assert.equal(el._tileSource, "map_tiles");
+});
+
+test("_mapTilesRequest carries the token to the proxy only", () => {
+  const { el } = makeCard();
+  el._tileToken = "tok";
+  const sameOrigin = el._mapTilesRequest("/api/map_tiles/vector/1/2/3.mvt");
+  assert.equal(sameOrigin.url, "http://localhost/api/map_tiles/vector/1/2/3.mvt");
+  assert.equal(sameOrigin.headers["X-Map-Tiles-Token"], "tok");
+  const crossOrigin = el._mapTilesRequest(
+    "https://ha.example/api/map_tiles/raster/1/2/3.png"
+  );
+  assert.equal(crossOrigin.headers, undefined);
+  assert.ok(crossOrigin.url.includes("token=tok"));
+  const foreign = el._mapTilesRequest("https://tiles.example/x.png");
+  assert.equal(foreign.url, "https://tiles.example/x.png");
+  assert.ok(!foreign.url.includes("token"));
+});
+
+test("maplibre worker ships next to the card bundle", () => {
+  const worker = fileURLToPath(
+    new URL("../www/maplibre-gl-worker.js", import.meta.url)
+  );
+  assert.ok(existsSync(worker), "worker file exists (npm run build copies it)");
+  assert.ok(statSync(worker).size > 100000, "worker file is not a stub");
 });
 
 test("card falls back to raster tiles without the map tiles integration", async (t) => {
