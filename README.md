@@ -31,10 +31,10 @@ Design rationale and decisions are recorded as ADRs in [`docs/adr/`](docs/adr/).
   small and faint, and joined into **dashed journey lines** that fade by recency.
 - **Drop-in map replacement.** Accepts the default map card's config
   (`entities`, `zones`, `hours_to_show`, `default_zoom`, `auto_fit`, `fit_zones`,
-  `theme_mode`, `dark_mode`, `cluster`, `aspect_ratio`, ...) and draws markers,
-  zones, trails, and clustering itself on a bundled Leaflet map. HA 2026.9 removed
-  the `ha-map` layer API this card used to build on, so it now owns its map rather
-  than depending on frontend internals (see
+  `theme_mode`, `dark_mode`, `cluster`, `map_style`, `aspect_ratio`, ...) and draws
+  markers, zones, trails, and clustering itself on a bundled Leaflet map. HA 2026.9
+  removed the `ha-map` layer API this card used to build on, so it now owns its map
+  rather than depending on frontend internals (see
   [ADR-0008](docs/adr/0008-self-contained-map-after-ha-map-layers-removal.md)).
 - **Backfill.** On first install it imports up to `backfill_days` of recorder
   history so the map is populated on day one.
@@ -55,16 +55,16 @@ service-worker cache and is available on every dashboard without adding a
 resource by hand. If you ever need to load it manually, it is also served at
 `/visit_heatmap/visit-heatmap-card.js`.
 
-The base map matches the stock map card: on HA 2026.9+ the card draws the same
-MapLibre vector cartography (the frontend's shipped light/dark styles) through
-the Map tiles proxy — no external tile requests, and it follows `theme_mode`.
-`map_style` picks any of the stock card's cartographies — `default`, `colorful`,
-`natural`, `muted`, `gray`, `toner` — or an adjusted style object; `base_map:
-raster` trades the vector cartography for the proxy's plain OpenStreetMap
-raster. Browsers without WebGL2 get the proxy's raster tiles instead; on older
-Home Assistant versions the card falls back to the Carto raster tiles the stock
-map used before the switch (the same provider whose tiles now show an API-key
-notice there).
+The base map defaults to the stock map card's: on HA 2026.9+ the card draws the
+same MapLibre vector cartography (the frontend's shipped light/dark styles)
+through the Map tiles proxy — no external tile requests — and it follows
+`theme_mode`. `map_style` picks any of the stock card's cartographies —
+`default`, `colorful`, `natural`, `muted`, `gray`, `toner` — or an adjusted style
+object; `base_map: raster` trades the vector cartography for the proxy's plain
+OpenStreetMap raster. Browsers without WebGL2 get the proxy's raster tiles
+instead; on older Home Assistant versions the card falls back to the Carto raster
+tiles the stock map used before the switch (the same provider whose tiles now
+show an API-key notice there).
 
 ## Card configuration
 
@@ -86,8 +86,13 @@ base_map: vector     # vector cartography (default); raster for plain OpenStreet
 ```
 
 It also accepts the default map card's keys: `zones`, `hours_to_show`,
-`default_zoom`, `auto_fit`, `fit_zones`, `theme_mode`, `dark_mode`, `cluster`,
-`map_style`, `show_all`, `aspect_ratio`.
+`default_zoom`, `auto_fit`, `fit_zones`, `theme_mode` (with legacy `dark_mode`),
+`cluster`, `aspect_ratio`.
+
+Card-specific extras: `max_points` (cap on points painted from the fetched
+history, default 5000), `max_width` (px, centered), `aspect` (width/height; the
+stock `aspect_ratio` is accepted too), and `debug: true` (overlay with the tile
+source, map style and backend diagnostics).
 
 > `show_all: true` maps every GPS `device_tracker` entity (no entity list needed);
 > `hours_to_show` draws the stock map card's recent-movement trails layer on top of
@@ -113,8 +118,9 @@ with clickable diagrams, the decay curve, and a logic playground.
 ```bash
 npm install
 npm run build       # builds the card bundle into custom_components/visit_heatmap/www/
-node --test custom_components/visit_heatmap/www_src/logic.test.mjs  # card pure logic
-node --test custom_components/visit_heatmap/www_src/card.test.mjs   # card render in jsdom
+node --test custom_components/visit_heatmap/www_src/logic.test.mjs      # card pure logic
+node --test custom_components/visit_heatmap/www_src/map-style.test.mjs  # style resolution + builder surgery
+node --test custom_components/visit_heatmap/www_src/card.test.mjs       # card render in jsdom
 python -m pytest     # unit tests for the integration's pure logic
 ruff check custom_components/visit_heatmap
 ```
@@ -123,12 +129,14 @@ ruff check custom_components/visit_heatmap
 real `logic.py`/`store.py` pipeline and prints the resulting rows with their
 decay opacities — a no-HA way to see dedupe, classification, and the fade work.
 
-The card's pure logic is unit-tested (`logic.test.mjs`) and the built bundle is
-smoke-tested in jsdom (`card.test.mjs`, no browser needed): the tests mount the
-card, assert that its Leaflet map is created, that the visit/zone/entity layers
-land on it, and that the base layer switches to the `map_tiles` proxy when the
-token is available. The full interactive map is still best verified by eye on a
-Home Assistant instance.
+The card's pure logic (`logic.mjs`) and its map-style resolution
+(`map-style-config.mjs`, `map-style.mjs`) are unit-tested, and the built bundle
+is smoke-tested in jsdom (`card.test.mjs`, no browser needed): the tests mount
+the card, assert that its Leaflet map is created, that the visit/zone/entity
+layers land on it, that the base layer switches to the `map_tiles` proxy when
+the token is available, and that the shipped/default map styles are fetched
+while other cartographies are built in the browser. The full interactive map is
+still best verified by eye on a Home Assistant instance.
 
 ### Local dev against a docker-compose Home Assistant
 
