@@ -149,19 +149,40 @@ in it; otherwise copy the `visit_heatmap` folder in instead.
 
 ## Releasing
 
-Releases are automated by `.github/workflows/release.yml`: every push to `main`
-builds the card, packages `custom_components/visit_heatmap` as `visit-heatmap.zip`,
-and publishes a GitHub release tagged with the short commit SHA — the asset HACS
-downloads in `zip_release` mode (`hacs.json`).
+Releases are versioned from the integration's `manifest.json`, because that is
+what HACS compares. HACS reads the installed version from the manifest and the
+available version from the **tag** of the newest GitHub release, then asks
+`AwesomeVersion` whether the tag is higher. The tag is therefore the version —
+plain `X.Y.Z`, no `v` prefix and no commit hashes — and it must match the
+manifest inside the release zip.
 
-Optionally, tag `vX.Y.Z` matching the `manifest.json` version so HACS shows a
-human-readable version selector alongside the per-commit releases. Before tagging
-a version, verify:
+`.github/workflows/release.yml` does that on every push to `main`:
+
+1. It reads `version` from `custom_components/visit_heatmap/manifest.json`.
+2. If a release with that version already exists, it publishes nothing (and says
+   so in the log): one release per version, so HACS offers an update only when
+   the version changes. Re-running the workflow by hand re-publishes that
+   version's asset, for example after replacing the zip.
+3. Otherwise it builds the card, packages `custom_components/visit_heatmap` as
+   `visit-heatmap.zip` (the asset HACS downloads in `zip_release` mode,
+   `hacs.json`) and publishes the release tagged with the version, with the
+   built-from commit in the notes.
+
+To release, verify locally and bump the version:
 
 1. Bump `version` in `custom_components/visit_heatmap/manifest.json` (and
-   optionally `package.json`).
+   `package.json` + `npm install --package-lock-only` so `npm ci` stays in
+   sync).
 2. `npm run build` and commit the rebuilt
    `custom_components/visit_heatmap/www/visit-heatmap-card.js`.
-3. `python -m pytest` and `ruff check custom_components/visit_heatmap` both pass.
-4. `node --check custom_components/visit_heatmap/www/visit-heatmap-card.js` passes.
-5. Tag `vX.Y.Z` and push the tag (the workflow uploads the asset for it too).
+3. `python -m pytest`, `ruff check custom_components/visit_heatmap`, and
+   `node --test custom_components/visit_heatmap/www_src/logic.test.mjs
+   custom_components/visit_heatmap/www_src/map-style.test.mjs
+   custom_components/visit_heatmap/www_src/card.test.mjs` all pass.
+4. Push to `main`. The workflow tags the new version; HACS shows the update once
+   the release is published.
+
+Because the tag is a plain semantic version, the HACS release selector lists real
+versions, and an installed copy at `0.3.0` is not offered `0.3.0` again. Keep old
+SHA-tagged releases around only if you want their history; they are older than
+every version tag, so HACS ignores them.

@@ -33,6 +33,7 @@ map (tiles through the core Map tiles proxy).
 | 6 | Packaging: single HACS repo `ha-visit-heatmap` | [0006](adr/0006-packaging-and-naming.md) |
 | 7 | Backfill: import recorder history on first install | [0007](adr/0007-recorder-backfill.md) |
 | 8 | Self-contained Leaflet map after HA 2026.9 removed `ha-map` layers; tiles via the Map tiles proxy | [0008](adr/0008-self-contained-map-after-ha-map-layers-removal.md) |
+| 9 | Releases tagged with the manifest version (not the commit SHA), so HACS can compare versions | [0009](adr/0009-versioned-releases-for-hacs.md) |
 
 ## Terms
 

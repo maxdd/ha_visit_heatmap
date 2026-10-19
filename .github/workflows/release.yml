@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
+  # Re-publish the current version's asset, e.g. after a lost or replaced zip.
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# One release at a time, so two quick pushes cannot race on a tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -17,37 +21,74 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Resolve release tag
-        id: tag
+      - name: Resolve version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          # HACS compares the installed manifest.json version with the tag of
+          # the newest release (AwesomeVersion). Tagging each commit with its
+          # short SHA made every install look permanently out of date: an
+          # all-digit SHA parses as a build number that outranks any version,
+          # and a SHA with a letter is UNKNOWN, where HACS falls back to plain
+          # string inequality. So the tag is the version, and the version is
+          # the manifest's.
+          version=$(python3 -c "import json; print(json.load(open('custom_components/visit_heatmap/manifest.json'))['version'])")
+
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::manifest.json version '$version' is not X.Y.Z; HACS parses it as a semantic version."
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+          # One release per version: a push that does not bump the manifest
+          # publishes nothing, so HACS offers an update only when there is
+          # something new to install. Re-running the workflow by hand
+          # republishes this version's asset (action-gh-release overwrites it).
+          if gh release view "$version" >/dev/null 2>&1; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              echo "Re-publishing $version."
+            else
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Version $version is already released; bump the manifest version to publish."
+            fi
           else
-            echo "name=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Publishing $version."
           fi
 
       - uses: actions/setup-node@v4
+        if: steps.version.outputs.publish == 'true'
         with:
           node-version: "20"
           cache: npm
 
       - name: Build card
+        if: steps.version.outputs.publish == 'true'
         run: |
           npm ci
           npm run build
 
       - name: Package integration
+        if: steps.version.outputs.publish == 'true'
         run: |
           cd custom_components/visit_heatmap
           zip -r ../../visit-heatmap.zip . -x "./www_src/*" "./tests/*" "./strings.json"
 
       - name: Publish release
+        if: steps.version.outputs.publish == 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.tag.outputs.name }}
+          tag_name: ${{ steps.version.outputs.value }}
+          name: ${{ steps.version.outputs.value }}
           files: visit-heatmap.zip
-          body: |
-            Automated release for `${{ github.ref_name }}`.
-            HACS fetches the `visit-heatmap.zip` asset from the release tagged
-            with the short commit SHA (or version tag).
           fail_on_unmatched_files: true
+          body: |
+            Visit Heatmap `${{ steps.version.outputs.value }}`.
+
+            The tag and `custom_components/visit_heatmap/manifest.json` carry
+            the same version, which is what HACS compares to decide whether an
+            update is available. The asset contains that same manifest.
+
+            Built from commit ${{ github.sha }}.
